@@ -4,6 +4,28 @@ Convention : **chaque phase terminée** ajoute une entrée datée + liste livr
 
 ---
 
+## Release candidate v1.0.0-rc1 (2026-05-16)
+
+### Certification release
+
+- Tag prévu : `v1.0.0-rc1`.
+- Message tag : `SAMY SOFT first production release candidate`.
+- Périmètre : baseline ERP industrielle local-first, Phase 12 préparatoire LAN/industrie incluse, sans activation réseau.
+
+### Vérifications release
+
+- `git status --short` — OK, propre avant certification.
+- `npx prisma validate` — OK.
+- `npm run lint` — OK.
+- `npm run build` — OK.
+- `npm run e2e` — OK, 3 tests Playwright passés.
+
+### Note rollback
+
+Rollback applicatif : revenir au tag précédent ou au commit baseline précédent. Rollback données : restaurer la dernière sauvegarde ZIP vérifiée avant toute migration ou installation candidate.
+
+---
+
 ## Phase 12 — Multi-user LAN & expansion industrielle (2026-05-16)
 
 ### Livré

@@ -9,11 +9,11 @@ SAMY SOFT uses semantic versioning:
 - `PATCH` fixes bugs without changing supported workflows.
 - Pre-release suffixes mark certification state: `-alpha`, `-beta`, `-rc.N`.
 
-Current milestone: `v1.0.0-rc`.
+Current milestone: `v1.0.0-rc1`.
 
 ## Tag names
 
-- Release candidate: `v1.0.0-rc.1`, `v1.0.0-rc.2`.
+- Release candidate: `v1.0.0-rc1`, `v1.0.0-rc2`.
 - Stable release: `v1.0.0`.
 - Hotfix release: `v1.0.1`.
 - Internal LAN proof of concept: `lan-poc/YYYY-MM-DD` only if explicitly approved.
@@ -43,12 +43,21 @@ Before creating a tag:
 npx prisma validate
 npm run lint
 npm run build
+npm run e2e
 ```
 
 Then tag the verified commit:
 
 ```bash
-git tag -a v1.0.0-rc.1 -m "SAMY SOFT v1.0.0 release candidate 1"
+git tag -a v1.0.0-rc1 -m "SAMY SOFT first production release candidate"
 ```
 
 Production tags must point to commits with clean status and no ignored runtime data forced into Git.
+
+## Release history
+
+### `v1.0.0-rc1` — first production release candidate
+
+- Scope: production-certified local-first industrial ERP baseline.
+- Verification: clean Git status, Prisma validation, TypeScript lint, production build, and E2E suite.
+- Migration policy: Prisma migrations preserved under `prisma/migrations/`; generated SQLite databases remain ignored.
