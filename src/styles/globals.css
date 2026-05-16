@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * SAMY SOFT — workstation-first industrial ERP palette.
+ * Sidebar uses fixed dark chrome (--color-sidebar-*) regardless of theme
+ * so the shell reads like Odoo / terminal POS navigation.
+ */
+
+:root {
+  color-scheme: light;
+  /* Main content surfaces (neutral industrial light) */
+  --color-surface: 237 239 243;
+  --color-surface-muted: 229 231 237;
+  --color-surface-elevated: 248 249 251;
+  --color-border: 198 206 217;
+  --color-border-strong: 132 146 166;
+  --color-fg: 28 32 38;
+  --color-fg-muted: 74 82 94;
+  /* Restrained accent (operations, focus) */
+  --color-accent: 47 113 206;
+  --color-accent-fg: 255 255 255;
+  --color-danger: 176 52 63;
+  --color-danger-fg: 255 255 255;
+
+  /* Fixed industrial sidebar chrome */
+  --color-sidebar-bg: 28 31 41;
+  --color-sidebar-muted: 36 40 53;
+  --color-sidebar-border: 54 58 72;
+  --color-sidebar-fg: 229 231 239;
+  --color-sidebar-fg-muted: 156 164 178;
+  --color-sidebar-accent: 59 130 223;
+  --color-sidebar-accent-fg: 255 255 255;
+  --color-sidebar-ring: 69 157 249;
+
+  /* Compact radii */
+  --erp-radius-panel: 0.25rem;
+  --erp-radius-control: 0.1875rem;
+}
+
+.dark {
+  color-scheme: dark;
+  --color-surface: 22 25 34;
+  --color-surface-muted: 31 36 46;
+  --color-surface-elevated: 29 34 43;
+  --color-border: 58 64 78;
+  --color-border-strong: 100 109 126;
+  --color-fg: 235 238 246;
+  --color-fg-muted: 169 177 189;
+  --color-accent: 71 146 239;
+  --color-accent-fg: 12 17 29;
+  --color-danger: 239 129 139;
+  --color-danger-fg: 22 26 37;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family:
+    Inter,
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    Roboto,
+    Arial,
+    sans-serif;
+  font-size: 13px;
+  line-height: 1.38;
+}
+
+@layer base {
+  .dark body {
+    font-size: 13px;
+  }
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid rgb(var(--color-accent));
+  outline-offset: 1px;
+}
+
+/* Compact control chrome for ERP workstations */
+.control-chrome {
+  @apply rounded-[var(--erp-radius-control)] border border-border bg-surface-elevated px-2.5 py-1.5 text-[13px] text-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.04)] outline-none transition-colors placeholder:text-foreground-muted;
+}
+
+.dark .control-chrome {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+.erp-divider-vertical {
+  @apply mx-3 h-5 w-px shrink-0 bg-border;
+}

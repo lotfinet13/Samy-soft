@@ -1,0 +1,90 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist-electron/
+release/
+out/
+build/
+*.asar
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.zip
+*.7z
+
+# Test and coverage artifacts
+coverage/
+test-results/
+playwright-report/
+blob-report/
+e2e/artifacts/
+.nyc_output/
+
+# Local databases, backups, and generated runtime data
+.data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+backups/
+backup/
+*.backup
+
+# Logs and diagnostics
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+diagnostic-bundles/
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+!.env.template
+
+# OS, editor, and temporary files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.temp
+*.swp
+*.swo
+~$*
+.cache/
+.vite/
+.eslintcache
+
+# Electron / Prisma generated local caches
+prisma/*.db
+prisma/*.sqlite
+prisma/dev.db*
+
+# Keep source assets, docs, Prisma schema, and migrations tracked.
+!prisma/migrations/
+!prisma/migrations/**/*
+!docs/
+!docs/**/*
+node_modules
+dist
+dist-electron
+.data
+.env.local
+*.log
+.DS_Store
+playwright-report
+playwright-results.json
+test-results
+e2e/artifacts
+release

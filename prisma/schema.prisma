@@ -1,0 +1,1940 @@
+generator client {
+
+  provider = "prisma-client-js"
+
+}
+
+
+
+datasource db {
+
+  provider = "sqlite"
+
+  url      = env("DATABASE_URL")
+
+}
+
+
+
+enum RoleName {
+
+  ADMIN
+
+  MANAGER
+
+  OPERATOR
+
+  VIEWER
+
+}
+
+
+
+enum InvoiceStatus {
+
+  DRAFT
+
+  VALIDATED
+
+  PAID
+
+  CANCELLED
+
+}
+
+
+
+enum InvoicePaymentStatus {
+
+  UNPAID
+
+  PARTIAL
+
+  PAID
+
+}
+
+
+
+enum PaymentMethod {
+
+  CASH
+
+  BANK_TRANSFER
+
+  CHEQUE
+
+  OTHER
+
+}
+
+
+
+enum PayrollStatus {
+
+  DRAFT
+
+  VALIDATED
+
+  PAID
+
+}
+
+
+
+enum SalaryType {
+
+  MONTHLY
+
+  DAILY
+
+}
+
+
+
+enum AttendanceStatus {
+
+  PRESENT
+
+  ABSENT
+
+  LATE
+
+  HALF_DAY
+
+  OVERTIME
+
+  SICK_LEAVE
+
+  VACATION
+
+}
+
+
+
+enum AdvanceRepaymentStatus {
+
+  PENDING
+
+  PARTIAL
+
+  REPAID
+
+  WRITTEN_OFF
+
+}
+
+
+
+enum PayrollAdjustmentKind {
+
+  BONUS
+
+  DEDUCTION
+
+  CORRECTION
+
+}
+
+
+
+enum PayrollCycleStatus {
+
+  DRAFT
+
+  LOCKED
+
+  ARCHIVED
+
+}
+
+
+
+enum BatchStatus {
+
+  PLANNED
+
+  IN_PROGRESS
+
+  COMPLETED
+
+  CANCELLED
+
+}
+
+
+
+/// Grand-livre : signe agrégé (Σ qtySigned == stock physique courant).
+
+enum InventoryMovementKind {
+
+  PURCHASE_IN
+
+  PRODUCTION_OUT
+
+  PRODUCTION_IN
+
+  MANUAL_ADJUSTMENT
+
+  DAMAGED_LOSS
+
+  /** Pertes ou rebuts identifiables lors des opérations de fabrication */
+
+  PRODUCTION_WASTE
+
+  EXPIRED_LOSS
+
+  SALES_OUT
+
+  RETURN_IN
+
+}
+
+
+
+enum LockScope {
+
+  OPTIMISTIC
+
+  PESSIMISTIC
+
+}
+
+
+enum BarcodeEntityType {
+
+  RAW_MATERIAL
+
+  PACKAGING_MATERIAL
+
+  PRODUCT
+
+  PRODUCTION_BATCH
+
+  INVOICE
+
+}
+
+
+enum MachineKind {
+
+  MIXER
+
+  FREEZER
+
+  PACKAGING
+
+  OTHER
+
+}
+
+
+enum MachineStatus {
+
+  ACTIVE
+
+  MAINTENANCE
+
+  DOWN
+
+  RETIRED
+
+}
+
+
+enum MaintenanceScheduleStatus {
+
+  PLANNED
+
+  DUE
+
+  DONE
+
+  SKIPPED
+
+}
+
+
+enum MaintenancePriority {
+
+  LOW
+
+  MEDIUM
+
+  HIGH
+
+  CRITICAL
+
+}
+
+
+enum ReplicationDirection {
+
+  EXPORT
+
+  IMPORT
+
+}
+
+
+enum MaterialKind {
+
+  RAW
+
+  PACKAGING
+
+}
+
+
+
+enum InventoryUnit {
+
+  KG
+
+  G
+
+  L
+
+  ML
+
+  UNIT
+
+}
+
+
+
+model Role {
+
+  id          String   @id @default(uuid())
+
+  name        RoleName @unique
+
+  labelFr     String
+
+  permissions String   @default("[]")
+
+  users       User[]
+
+  createdAt   DateTime @default(now())
+
+  updatedAt   DateTime @updatedAt
+
+}
+
+
+
+model User {
+
+  id              String           @id @default(uuid())
+
+  username        String           @unique
+
+  passwordHash    String
+
+  displayName     String
+
+  isActive        Boolean          @default(true)
+
+  roleId          String
+
+  role            Role             @relation(fields: [roleId], references: [id])
+
+  activityLogs    ActivityLog[]
+
+  backupsCreated  BackupRecord[]
+
+  stockMovements  StockMovement[]
+
+  purchasesCreated PurchaseEntry[]
+
+  batchesCreated ProductionBatch[]    @relation("BatchCreatedBy")
+
+  batchesOperated ProductionBatch[]   @relation("BatchOperator")
+
+  productionLogs ProductionOperationLog[]
+
+  payrollCyclesClosed PayrollCycle[]        @relation("PayrollCycleClosedBy")
+
+  salaryAdvancesCreated SalaryAdvance[]     @relation("SalaryAdvanceCreatedBy")
+
+  payrollAdjustmentsCreated PayrollAdjustment[] @relation("PayrollAdjustmentCreatedBy")
+
+  attendanceRecordsCreated AttendanceRecord[] @relation("AttendanceRecordCreatedBy")
+
+  invoicesCreated Invoice[]       @relation("InvoiceCreatedBy")
+
+  invoicesValidated Invoice[]       @relation("InvoiceValidatedBy")
+
+  paymentsRecorded PaymentRecord[] @relation("PaymentRecordedBy")
+
+  savedReportPresets SavedReportPreset[]
+
+  operationalLocks OperationalLock[]
+
+  createdAt       DateTime         @default(now())
+
+  updatedAt       DateTime         @updatedAt
+
+
+
+  @@index([roleId])
+
+}
+
+
+
+/// Paramètres de rapports sauvegardés — filtres utilisateur (Phase 6).
+
+model SavedReportPreset {
+
+  id          String @id @default(uuid())
+
+  createdById String
+
+  createdBy   User   @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  /// inventory | production | payroll | sales | profitability | kpi
+
+  section     String
+
+  title       String
+
+  filtersJson String @default("{}")
+
+  createdAt   DateTime @default(now())
+
+  updatedAt   DateTime @updatedAt
+
+
+
+  @@index([createdById, section])
+
+}
+
+
+
+model ActivityLog {
+
+  id         String   @id @default(uuid())
+
+  userId     String?
+
+  user       User?    @relation(fields: [userId], references: [id])
+
+  action     String
+
+  entityType String
+
+  entityId   String?
+
+  metadata   String   @default("{}")
+
+  createdAt  DateTime @default(now())
+
+
+
+  @@index([createdAt])
+
+  @@index([entityType, entityId])
+
+}
+
+
+
+model AppSetting {
+
+  id        String   @id @default(uuid())
+
+  key       String   @unique
+
+  value     String
+
+  updatedAt DateTime @updatedAt
+
+}
+
+
+
+model BackupRecord {
+
+  id             String    @id @default(uuid())
+
+  filename       String
+
+  absolutePath   String
+
+  sizeBytes      Int
+
+  checksumSha256 String?
+
+  /// ZIP_V1 = archive ZIP (database.sqlite + manifest.json) · LEGACY_SQLITE = copie fichier .sqlite brute (héritage)
+
+  format         String    @default("ZIP_V1")
+
+  integrityStatus String?
+
+  verifiedAt      DateTime?
+
+  note           String?
+
+  createdById    String?
+
+  createdBy      User?     @relation(fields: [createdById], references: [id])
+
+  createdAt      DateTime  @default(now())
+
+
+
+  @@index([createdAt])
+
+}
+
+
+
+model Worker {
+
+  id             String           @id @default(uuid())
+
+  code           String           @unique
+
+  firstName      String
+
+  lastName       String
+
+  phone          String?
+
+  address        String?
+
+  jobTitle       String?
+
+  department     String?
+
+  hireDate       DateTime?
+
+  salaryType     SalaryType       @default(MONTHLY)
+
+  baseSalary     Decimal?
+
+  dailyWage      Decimal?
+
+  overtimeRate   Decimal?
+
+  notes          String?
+
+  isActive       Boolean          @default(true)
+
+  attendance     AttendanceRecord[]
+
+  payrollRecords PayrollRecord[]
+
+  shifts         WorkerShift[]
+
+  salaryAdvances SalaryAdvance[]
+
+  createdAt      DateTime         @default(now())
+
+  updatedAt      DateTime         @updatedAt
+
+
+
+  @@index([department])
+
+  @@index([isActive])
+
+  @@index([lastName, firstName])
+
+}
+
+
+
+model Shift {
+
+  id                 String             @id @default(uuid())
+
+  name               String
+
+  startTime          String
+
+  endTime            String
+
+  overtimeRulesJson  String             @default("{}")
+
+  isActive           Boolean            @default(true)
+
+  assignments        WorkerShift[]
+
+  attendance         AttendanceRecord[]
+
+  createdAt          DateTime           @default(now())
+
+  updatedAt          DateTime           @updatedAt
+
+
+
+  @@index([isActive])
+
+}
+
+
+
+model WorkerShift {
+
+  workerId   String
+
+  worker     Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  shiftId    String
+
+  shift      Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now())
+
+
+
+  @@id([workerId, shiftId])
+
+  @@index([shiftId])
+
+}
+
+
+
+model AttendanceRecord {
+
+  id               String           @id @default(uuid())
+
+  workerId         String
+
+  worker           Worker           @relation(fields: [workerId], references: [id])
+
+  workedDate       DateTime
+
+  checkInAt        DateTime?
+
+  checkOutAt       DateTime?
+
+  totalWorkedHours Decimal?
+
+  overtimeHours    Decimal          @default(0)
+
+  status           AttendanceStatus @default(PRESENT)
+
+  shiftId          String?
+
+  shift            Shift?           @relation(fields: [shiftId], references: [id])
+
+  notes            String?
+
+  createdById      String?
+
+  createdBy        User?            @relation("AttendanceRecordCreatedBy", fields: [createdById], references: [id])
+
+  createdAt        DateTime         @default(now())
+
+  updatedAt        DateTime         @updatedAt
+
+
+
+  @@unique([workerId, workedDate])
+
+  @@index([workedDate])
+
+  @@index([status])
+
+  @@index([shiftId])
+
+}
+
+
+
+model PayrollCycle {
+
+  id             String             @id @default(uuid())
+
+  label          String?
+
+  periodStart    DateTime
+
+  periodEnd      DateTime
+
+  status         PayrollCycleStatus @default(DRAFT)
+
+  notes          String?
+
+  closedAt       DateTime?
+
+  closedById     String?
+
+  closedBy       User?              @relation("PayrollCycleClosedBy", fields: [closedById], references: [id])
+
+  payrollRecords PayrollRecord[]
+
+  createdAt      DateTime           @default(now())
+
+  updatedAt      DateTime           @updatedAt
+
+
+
+  @@index([periodStart, periodEnd])
+
+  @@index([status])
+
+}
+
+
+
+model PayrollRecord {
+
+  id                String                 @id @default(uuid())
+
+  payrollCycleId    String?
+
+  payrollCycle      PayrollCycle?          @relation(fields: [payrollCycleId], references: [id])
+
+  workerId          String
+
+  worker            Worker                 @relation(fields: [workerId], references: [id])
+
+  periodStart       DateTime
+
+  periodEnd         DateTime
+
+  grossAmount       Decimal
+
+  overtimePay       Decimal                @default(0)
+
+  deductions        Decimal                @default(0)
+
+  advanceRecovery   Decimal                @default(0)
+
+  netAmount         Decimal
+
+  currencyCode      String                 @default("DZD")
+
+  status            PayrollStatus          @default(DRAFT)
+
+  metadata          String                 @default("{}")
+
+  createdAt         DateTime               @default(now())
+
+  updatedAt         DateTime               @updatedAt
+
+  adjustments       PayrollAdjustment[]
+
+  advanceRecoveries PayrollAdvanceRecovery[]
+
+
+
+  @@index([workerId])
+
+  @@index([periodStart, periodEnd])
+
+  @@index([payrollCycleId])
+
+}
+
+
+
+model SalaryAdvance {
+
+  id                String                 @id @default(uuid())
+
+  workerId          String
+
+  worker            Worker                 @relation(fields: [workerId], references: [id])
+
+  amount            Decimal
+
+  reason            String?
+
+  paymentDate       DateTime
+
+  repaymentStatus   AdvanceRepaymentStatus @default(PENDING)
+
+  notes             String?
+
+  createdById       String?
+
+  createdBy         User?                  @relation("SalaryAdvanceCreatedBy", fields: [createdById], references: [id])
+
+  createdAt         DateTime               @default(now())
+
+  updatedAt         DateTime               @updatedAt
+
+  recoveries        PayrollAdvanceRecovery[]
+
+
+
+  @@index([workerId])
+
+  @@index([paymentDate])
+
+  @@index([repaymentStatus])
+
+}
+
+
+
+model PayrollAdvanceRecovery {
+
+  id              String        @id @default(uuid())
+
+  salaryAdvanceId String
+
+  salaryAdvance   SalaryAdvance @relation(fields: [salaryAdvanceId], references: [id])
+
+  payrollRecordId String
+
+  payrollRecord   PayrollRecord @relation(fields: [payrollRecordId], references: [id])
+
+  amount          Decimal
+
+  createdAt       DateTime      @default(now())
+
+
+
+  @@index([salaryAdvanceId])
+
+  @@index([payrollRecordId])
+
+}
+
+
+
+model PayrollAdjustment {
+
+  id              String                @id @default(uuid())
+
+  payrollRecordId String
+
+  payrollRecord   PayrollRecord         @relation(fields: [payrollRecordId], references: [id], onDelete: Cascade)
+
+  kind            PayrollAdjustmentKind
+
+  amount          Decimal
+
+  reason          String?
+
+  createdById     String?
+
+  createdBy       User?                 @relation("PayrollAdjustmentCreatedBy", fields: [createdById], references: [id])
+
+  createdAt       DateTime              @default(now())
+
+
+
+  @@index([payrollRecordId])
+
+  @@index([createdAt])
+
+}
+
+
+
+model Supplier {
+
+  id                   String               @id @default(uuid())
+
+  name                 String
+
+  contactName          String?
+
+  phone                String?
+
+  email                String?
+
+  address              String?
+
+  notes                String?
+
+  isActive             Boolean              @default(true)
+
+  rawMaterials         RawMaterial[]
+
+  packagingMaterials   PackagingMaterial[]
+
+  purchases            PurchaseEntry[]
+
+  createdAt            DateTime             @default(now())
+
+  updatedAt            DateTime             @updatedAt
+
+
+
+  @@index([name])
+
+}
+
+
+
+model RawMaterial {
+
+  id                 String               @id @default(uuid())
+
+  sku                String               @unique
+
+  labelFr            String
+
+  category           String?
+
+  unit               InventoryUnit
+
+  minimumStockQty    Decimal              @default(0)
+
+  costPriceUnit      Decimal              @default(0)
+
+  expirationTracking Boolean              @default(false)
+
+  expiryWarningDays  Int?
+
+  notes              String?
+
+  isActive           Boolean              @default(true)
+
+  supplierId         String?
+
+  supplier           Supplier?            @relation(fields: [supplierId], references: [id])
+
+  recipeLines        RecipeIngredient[]
+
+  stockMovements     StockMovement[]
+
+  purchaseLines      PurchaseEntryLine[]
+
+  createdAt          DateTime             @default(now())
+
+  updatedAt          DateTime             @updatedAt
+
+
+
+  @@index([supplierId])
+
+  @@index([category])
+
+  @@index([isActive])
+
+}
+
+
+
+model PackagingMaterial {
+
+  id                 String               @id @default(uuid())
+
+  sku                String               @unique
+
+  labelFr            String
+
+  category           String?
+
+  unit               InventoryUnit
+
+  minimumStockQty    Decimal              @default(0)
+
+  costPriceUnit      Decimal              @default(0)
+
+  expirationTracking Boolean              @default(false)
+
+  expiryWarningDays  Int?
+
+  notes              String?
+
+  isActive           Boolean              @default(true)
+
+  supplierId         String?
+
+  supplier           Supplier?            @relation(fields: [supplierId], references: [id])
+
+  stockMovements     StockMovement[]
+
+  purchaseLines      PurchaseEntryLine[]
+
+  finishedRecipes    Recipe[]
+
+  catalogProducts    Product[]
+
+  createdAt          DateTime             @default(now())
+
+  updatedAt          DateTime             @updatedAt
+
+
+
+  @@index([supplierId])
+
+  @@index([category])
+
+  @@index([isActive])
+
+}
+
+
+
+/// Entrées d’achat — lignes génératrices automatiques de mouvements grand-livre.
+
+model PurchaseEntry {
+
+  id            String               @id @default(uuid())
+
+  supplierId    String
+
+  supplier      Supplier             @relation(fields: [supplierId], references: [id])
+
+  invoiceRef    String?
+
+  purchaseDate  DateTime
+
+  currencyCode  String               @default("DZD")
+
+  notes         String?
+
+  totalAmount   Decimal              @default(0)
+
+  createdById   String?
+
+  createdBy     User?                @relation(fields: [createdById], references: [id])
+
+  lines         PurchaseEntryLine[]
+
+  createdAt     DateTime             @default(now())
+
+  updatedAt     DateTime             @updatedAt
+
+
+
+  @@index([supplierId, purchaseDate])
+
+  @@index([invoiceRef])
+
+}
+
+
+
+model PurchaseEntryLine {
+
+  id                   String               @id @default(uuid())
+
+  purchaseEntryId      String
+
+  purchaseEntry        PurchaseEntry        @relation(fields: [purchaseEntryId], references: [id], onDelete: Cascade)
+
+  materialKind         MaterialKind
+
+  rawMaterialId        String?
+
+  rawMaterial          RawMaterial?         @relation(fields: [rawMaterialId], references: [id])
+
+  packagingMaterialId  String?
+
+  packagingMaterial    PackagingMaterial?   @relation(fields: [packagingMaterialId], references: [id])
+
+  qty                  Decimal
+
+  unitPrice            Decimal
+
+  lineTotal            Decimal
+
+  expiresAt            DateTime?
+
+  labelSnapshot        String?
+
+  skuSnapshot          String?
+
+  unitSnapshot         InventoryUnit?
+
+
+
+  @@index([purchaseEntryId])
+
+  @@index([rawMaterialId])
+
+  @@index([packagingMaterialId])
+
+}
+
+
+
+/// Ledger — jamais de mutation directe des quantités article : mouvements + agrégats contrôlés.
+
+model StockMovement {
+
+  id                    String               @id @default(uuid())
+
+  materialKind          MaterialKind
+
+  rawMaterialId         String?
+
+  rawMaterial           RawMaterial?         @relation(fields: [rawMaterialId], references: [id])
+
+  packagingMaterialId   String?
+
+  packagingMaterial     PackagingMaterial?   @relation(fields: [packagingMaterialId], references: [id])
+
+  qtyBefore             Decimal
+
+  qtyAfter              Decimal
+
+  qtySigned             Decimal
+
+  inventoryKind         InventoryMovementKind
+
+  referenceType         String?
+
+  referenceId           String?
+
+  note                  String?
+
+  expiresAt             DateTime?
+
+  occurredAt            DateTime             @default(now())
+
+  createdById           String?
+
+  createdBy             User?                @relation(fields: [createdById], references: [id])
+
+  createdAt             DateTime             @default(now())
+
+
+
+  @@index([materialKind, rawMaterialId])
+
+  @@index([materialKind, packagingMaterialId])
+
+  @@index([occurredAt])
+
+  @@index([inventoryKind])
+
+}
+
+
+
+model Recipe {
+
+  id                         String               @id @default(uuid())
+
+  code                       String               @unique
+
+  labelFr                    String
+
+  category                   String?
+
+  description                String?
+
+  productionNotes            String?
+
+  yieldQty                   Decimal
+
+  yieldUnit                  InventoryUnit
+
+  estimatedMinutes           Int?
+
+  isActive                   Boolean              @default(true)
+
+  recipeVersion              Int                  @default(1)
+
+  parentRecipeId             String?
+
+  parentRecipe               Recipe?              @relation("RecipeVersions", fields: [parentRecipeId], references: [id])
+
+  versionChildren            Recipe[]             @relation("RecipeVersions")
+
+  outputPackagingMaterialId  String?
+
+  outputPackagingMaterial    PackagingMaterial?   @relation(fields: [outputPackagingMaterialId], references: [id])
+
+  ingredients                RecipeIngredient[]
+
+  batches                    ProductionBatch[]
+
+  catalogProducts            Product[]
+
+  createdAt                  DateTime             @default(now())
+
+  updatedAt                  DateTime             @updatedAt
+
+
+
+  @@index([category])
+
+  @@index([isActive])
+
+  @@index([parentRecipeId])
+
+}
+
+
+
+model RecipeIngredient {
+
+  id                   String           @id @default(uuid())
+
+  recipeId             String
+
+  recipe               Recipe           @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  rawMaterialId        String
+
+  rawMaterial          RawMaterial      @relation(fields: [rawMaterialId], references: [id])
+
+  quantity             Decimal
+
+  unit                 InventoryUnit
+
+  optionalIngredient   Boolean          @default(false)
+
+  wastePct             Decimal          @default(0)
+
+  sortOrder            Int              @default(0)
+
+  note                 String?
+
+  createdAt            DateTime         @default(now())
+
+  updatedAt            DateTime         @updatedAt
+
+
+
+  @@unique([recipeId, rawMaterialId])
+
+  @@index([recipeId])
+
+}
+
+
+
+model ProductionBatch {
+
+  id                    String                     @id @default(uuid())
+
+  code                  String                     @unique
+
+  recipeId              String
+
+  recipe                Recipe                     @relation(fields: [recipeId], references: [id])
+
+  plannedQty            Decimal
+
+  producedQty           Decimal?
+
+  status                BatchStatus                @default(PLANNED)
+
+  scheduledAt           DateTime?
+
+  startedAt             DateTime?
+
+  finishedAt            DateTime?
+
+  notes                 String?
+
+  metadata              String                     @default("{}")
+
+  createdById           String?
+
+  createdBy             User?                      @relation("BatchCreatedBy", fields: [createdById], references: [id])
+
+  operatorId            String?
+
+  operator              User?                      @relation("BatchOperator", fields: [operatorId], references: [id])
+
+  costIngredientTotal   Decimal?
+
+  costLaborEstimate     Decimal?
+
+  costOverheadEstimate  Decimal?
+
+  operationLogs         ProductionOperationLog[]
+
+  createdAt             DateTime                   @default(now())
+
+  updatedAt             DateTime                   @updatedAt
+
+
+
+  @@index([recipeId])
+
+  @@index([status])
+
+  @@index([scheduledAt])
+
+  @@index([finishedAt])
+
+}
+
+
+
+model ProductionOperationLog {
+
+  id                 String               @id @default(uuid())
+
+  batchId            String?
+
+  batch              ProductionBatch?     @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  mixerCode          String?
+
+  operatorId         String?
+
+  operator           User?                @relation(fields: [operatorId], references: [id])
+
+  runtimeMinutes     Int?
+
+  cleaningDone       Boolean              @default(false)
+
+  cleaningNotes      String?
+
+  maintenanceNeeded  Boolean              @default(false)
+
+  maintenanceNotes   String?
+
+  notes              String?
+
+  startedAt          DateTime             @default(now())
+
+  endedAt            DateTime?
+
+  createdAt          DateTime             @default(now())
+
+  updatedAt          DateTime             @updatedAt
+
+
+
+  @@index([batchId])
+
+  @@index([operatorId])
+
+  @@index([startedAt])
+
+}
+
+
+
+/// Catalogue commercial — article fini vendable ; déstockage via emballage/recette liés au grand-livre.
+
+model Product {
+
+  id                    String              @id @default(uuid())
+
+  sku                   String              @unique
+
+  name                  String
+
+  category              String?
+
+  sellingPrice          Decimal
+
+  unit                  InventoryUnit       @default(UNIT)
+
+  recipeId              String?
+
+  recipe                Recipe?             @relation(fields: [recipeId], references: [id])
+
+  packagingMaterialId   String?
+
+  packagingMaterial     PackagingMaterial?  @relation(fields: [packagingMaterialId], references: [id])
+
+  barcode               String?
+
+  notes                 String?
+
+  isActive              Boolean             @default(true)
+
+  invoiceItems          InvoiceItem[]
+
+  createdAt             DateTime            @default(now())
+
+  updatedAt             DateTime            @updatedAt
+
+
+
+  @@index([category])
+
+  @@index([isActive])
+
+  @@index([recipeId])
+
+  @@index([packagingMaterialId])
+
+  @@index([barcode])
+
+}
+
+
+
+model Customer {
+
+  id             String    @id @default(uuid())
+
+  code           String    @unique @default(cuid())
+
+  name           String
+
+  phone          String?
+
+  email          String?
+
+  address        String?
+
+  city           String?
+
+  taxIdentifier  String?
+
+  notes          String?
+
+  isActive       Boolean   @default(true)
+
+  invoices       Invoice[]
+
+  createdAt      DateTime  @default(now())
+
+  updatedAt      DateTime  @updatedAt
+
+
+
+  @@index([name])
+
+  @@index([city])
+
+  @@index([isActive])
+
+}
+
+
+
+model Invoice {
+
+  id                String               @id @default(uuid())
+
+  number            String               @unique
+
+  customerId        String
+
+  customer          Customer             @relation(fields: [customerId], references: [id])
+
+  issuedAt          DateTime             @default(now())
+
+  dueAt             DateTime?
+
+  status            InvoiceStatus        @default(DRAFT)
+
+  paymentStatus     InvoicePaymentStatus @default(UNPAID)
+
+  paymentMethod     PaymentMethod?
+
+  currencyCode      String               @default("DZD")
+
+  subtotalAmount    Decimal              @default(0)
+
+  taxAmount         Decimal              @default(0)
+
+  discountAmount    Decimal              @default(0)
+
+  totalAmount       Decimal              @default(0)
+
+  notes             String?
+
+  metadata          String               @default("{}")
+
+  createdById       String?
+
+  createdBy         User?                @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+
+  validatedAt       DateTime?
+
+  validatedById     String?
+
+  validatedBy       User?                @relation("InvoiceValidatedBy", fields: [validatedById], references: [id])
+
+  cancelledAt       DateTime?
+
+  items             InvoiceItem[]
+
+  payments          PaymentRecord[]
+
+  createdAt         DateTime             @default(now())
+
+  updatedAt         DateTime             @updatedAt
+
+
+
+  @@index([customerId])
+
+  @@index([issuedAt])
+
+  @@index([status])
+
+  @@index([paymentStatus])
+
+}
+
+
+
+model InvoiceItem {
+
+  id               String   @id @default(uuid())
+
+  invoiceId        String
+
+  invoice          Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  productId        String?
+
+  product          Product? @relation(fields: [productId], references: [id])
+
+  labelFr          String
+
+  skuSnapshot      String?
+
+  quantity         Decimal
+
+  unitPrice        Decimal
+
+  lineDiscount     Decimal  @default(0)
+
+  taxRate          Decimal  @default(0)
+
+  lineSubtotal     Decimal  @default(0)
+
+  lineTax          Decimal  @default(0)
+
+  lineTotal        Decimal  @default(0)
+
+  notes            String?
+
+  sortOrder        Int      @default(0)
+
+
+
+  @@index([invoiceId])
+
+  @@index([productId])
+
+}
+
+
+
+model PaymentRecord {
+
+  id            String        @id @default(uuid())
+
+  invoiceId     String
+
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  amount        Decimal
+
+  method        PaymentMethod
+
+  paidAt        DateTime      @default(now())
+
+  reference     String?
+
+  notes         String?
+
+  recordedById  String?
+
+  recordedBy    User?         @relation("PaymentRecordedBy", fields: [recordedById], references: [id])
+
+  createdAt     DateTime      @default(now())
+
+
+
+  @@index([invoiceId])
+
+  @@index([paidAt])
+
+}
+
+
+/// Préparation multi-postes : version logique générique sans changer les modèles métier existants.
+model OperationalVersion {
+
+  id          String   @id @default(uuid())
+
+  entityType  String
+
+  entityId    String
+
+  version     Int      @default(1)
+
+  checksum    String?
+
+  updatedById String?
+
+  updatedAt   DateTime @updatedAt
+
+  createdAt   DateTime @default(now())
+
+
+
+  @@unique([entityType, entityId])
+
+  @@index([entityType, updatedAt])
+
+}
+
+
+/// Préparation verrou pessimiste futur : non utilisé en mono-poste, prêt pour serveur LAN.
+model OperationalLock {
+
+  id          String    @id @default(uuid())
+
+  entityType  String
+
+  entityId    String
+
+  scope       LockScope @default(PESSIMISTIC)
+
+  ownerUserId String?
+
+  ownerUser   User?     @relation(fields: [ownerUserId], references: [id])
+
+  reason      String?
+
+  expiresAt   DateTime?
+
+  releasedAt  DateTime?
+
+  metadata    String    @default("{}")
+
+  createdAt   DateTime  @default(now())
+
+  updatedAt   DateTime  @updatedAt
+
+
+
+  @@index([entityType, entityId])
+
+  @@index([ownerUserId])
+
+  @@index([expiresAt])
+
+}
+
+
+/// Couche mapping code-barres : conserve les SKU existants et évite de lier l'UI à un type matériel.
+model BarcodeMapping {
+
+  id           String            @id @default(uuid())
+
+  barcode      String
+
+  format       String?
+
+  entityType   BarcodeEntityType
+
+  entityId     String
+
+  skuSnapshot  String?
+
+  label        String?
+
+  isPrimary    Boolean           @default(false)
+
+  printProfile String?
+
+  metadata     String            @default("{}")
+
+  createdAt    DateTime          @default(now())
+
+  updatedAt    DateTime          @updatedAt
+
+
+
+  @@unique([barcode])
+
+  @@index([entityType, entityId])
+
+  @@index([skuSnapshot])
+
+}
+
+
+/// Modèles d'impression opérationnelle : factures compactes, reçus 80mm, étiquettes.
+model PrintTemplate {
+
+  id           String   @id @default(uuid())
+
+  code         String   @unique
+
+  label        String
+
+  documentType String
+
+  paperProfile String   @default("A4")
+
+  templateJson String   @default("{}")
+
+  isActive     Boolean  @default(true)
+
+  createdAt    DateTime @default(now())
+
+  updatedAt    DateTime @updatedAt
+
+
+
+  @@index([documentType])
+
+  @@index([isActive])
+
+}
+
+
+model TouchTerminalProfile {
+
+  id         String   @id @default(uuid())
+
+  code       String   @unique
+
+  label      String
+
+  workflow   String
+
+  layoutJson String   @default("{}")
+
+  isActive   Boolean  @default(true)
+
+  createdAt  DateTime @default(now())
+
+  updatedAt  DateTime @updatedAt
+
+
+
+  @@index([workflow])
+
+  @@index([isActive])
+
+}
+
+
+model MachineAsset {
+
+  id           String        @id @default(uuid())
+
+  code         String        @unique
+
+  label        String
+
+  kind         MachineKind
+
+  status       MachineStatus @default(ACTIVE)
+
+  location     String?
+
+  serialNumber String?
+
+  notes        String?
+
+  schedules    MachineMaintenanceSchedule[]
+
+  downtimes    MachineDowntime[]
+
+  repairs      MachineRepairRecord[]
+
+  createdAt    DateTime      @default(now())
+
+  updatedAt    DateTime      @updatedAt
+
+
+
+  @@index([kind])
+
+  @@index([status])
+
+}
+
+
+model MachineMaintenanceSchedule {
+
+  id           String                    @id @default(uuid())
+
+  machineId    String
+
+  machine      MachineAsset              @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  title        String
+
+  priority     MaintenancePriority       @default(MEDIUM)
+
+  status       MaintenanceScheduleStatus @default(PLANNED)
+
+  intervalDays Int?
+
+  nextDueAt    DateTime
+
+  lastDoneAt   DateTime?
+
+  instructions String?
+
+  createdAt    DateTime                  @default(now())
+
+  updatedAt    DateTime                  @updatedAt
+
+
+
+  @@index([machineId])
+
+  @@index([status, nextDueAt])
+
+}
+
+
+model MachineDowntime {
+
+  id          String       @id @default(uuid())
+
+  machineId   String
+
+  machine     MachineAsset @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  startedAt   DateTime
+
+  endedAt     DateTime?
+
+  reason      String?
+
+  impactNotes String?
+
+  createdAt   DateTime     @default(now())
+
+  updatedAt   DateTime     @updatedAt
+
+
+
+  @@index([machineId])
+
+  @@index([startedAt])
+
+}
+
+
+model MachineRepairRecord {
+
+  id          String       @id @default(uuid())
+
+  machineId   String
+
+  machine     MachineAsset @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  performedAt DateTime
+
+  technician  String?
+
+  description String
+
+  costAmount  Decimal?
+
+  downtimeId  String?
+
+  metadata    String       @default("{}")
+
+  createdAt   DateTime     @default(now())
+
+  updatedAt   DateTime     @updatedAt
+
+
+
+  @@index([machineId])
+
+  @@index([performedAt])
+
+}
+
+
+/// Snapshot prévisionnel léger : calculé à partir des consommations, ventes et production historiques.
+model PurchaseForecastSnapshot {
+
+  id                   String       @id @default(uuid())
+
+  materialKind         MaterialKind
+
+  materialId           String
+
+  skuSnapshot          String?
+
+  labelSnapshot        String?
+
+  currentQty           Decimal
+
+  averageDailyUse      Decimal
+
+  daysRemaining        Decimal?
+
+  recommendedReorderAt DateTime?
+
+  supplierId           String?
+
+  confidenceScore      Decimal      @default(0)
+
+  seasonalityJson      String       @default("{}")
+
+  generatedAt          DateTime     @default(now())
+
+
+
+  @@index([materialKind, materialId])
+
+  @@index([generatedAt])
+
+  @@index([supplierId])
+
+}
+
+
+/// Journal d'export/import conceptuel pour synchro future offline-first.
+model SyncEnvelope {
+
+  id              String               @id @default(uuid())
+
+  direction       ReplicationDirection
+
+  scope           String
+
+  cursor          String?
+
+  payloadChecksum String?
+
+  status          String               @default("PENDING")
+
+  errorMessage    String?
+
+  createdAt       DateTime             @default(now())
+
+  appliedAt       DateTime?
+
+
+
+  @@index([direction, status])
+
+  @@index([scope, createdAt])
+
+}
+
+
+model IndustrialAnalyticsSnapshot {
+
+  id                        String   @id @default(uuid())
+
+  periodStart               DateTime
+
+  periodEnd                 DateTime
+
+  machineUtilizationPct     Decimal  @default(0)
+
+  productionEfficiencyScore Decimal  @default(0)
+
+  laborEfficiencyScore      Decimal  @default(0)
+
+  throughputUnits           Decimal  @default(0)
+
+  metadata                  String   @default("{}")
+
+  generatedAt               DateTime @default(now())
+
+
+
+  @@index([periodStart, periodEnd])
+
+  @@index([generatedAt])
+
+}
+
+
