@@ -97,6 +97,8 @@ Code **sans React** consommé par main et renderer :
 
 - Schéma SQLite unique fichier.
 - Migrations versionnées sous `prisma/migrations/`.
+- **`bootstrap-schema.sql`** : DDL premier lancement (runtime via `database-schema-service.ts`) ; garder aligné avec `schema.prisma` (`verify:bootstrap-schema`).
+- **Deux chemins d’initialisation** : bootstrap runtime (app, base vide) vs `migrate deploy` / `db push` (CLI, CI, E2E) — voir `README.md` § Database Lifecycle.
 
 ## Scripts npm
 
@@ -105,7 +107,7 @@ Voir `README.md`.
 ## Future scaling notes
 
 - **Packaging** : `electron-builder` (NSIS + portable x64) — voir `docs/deployment-guide.md` et `docs/production-checklist.md`.
-- **Migrations runtime** : aujourd’hui les migrations sont appliquées via CLI (`migrate deploy`) avant livraison ; pour upgrade auto en prod embarquée, prévoir exécution contrôlée au démarrage + journaux.
+- **Migrations runtime** : premier lancement usine = `bootstrap-schema.sql` ; montées de version incrémentales = `migrate deploy` (procédure équipe / `verify:migrate-deploy`) ; évolution schéma dev = `migrate dev` / `db push`. Upgrade auto complet au démarrage : roadmap (pas le comportement actuel).
 - **IPC** : ajouter des namespaces par module (`inventory:*`, `production:*`) tout en gardant la whitelist preload.
 - **Performance SQLite** : WAL déjà pertinent ; surveiller checkpoints lors des sauvegardes à chaud (déjà tentative `PRAGMA wal_checkpoint`).
 - **Multi-postes** : hors périmètre runtime Phase 12 ; l’architecture ajoute seulement les frontières nécessaires (`electron/repositories/db-context.ts`, `OperationalVersion`, `OperationalLock`, `SyncEnvelope`).

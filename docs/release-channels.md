@@ -2,6 +2,8 @@
 
 SAMY SOFT supports isolated runtime profiles via `SAMY_RELEASE_CHANNEL`.
 
+Database creation timing and bootstrap vs migrations: **README.md** § Database Lifecycle.
+
 ## Channels
 
 | Channel | `SAMY_RELEASE_CHANNEL` | SQLite path (dev unpackaged) |

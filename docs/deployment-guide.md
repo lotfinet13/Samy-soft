@@ -10,13 +10,16 @@
 
 - **Installateur** : `npm run dist:win` → `release/` (NSIS + portable, voir `package.json` → `build.win`).
 - Script de **pré-flight build** équipe : `npm run verify:desktop` (lint + bundle + validation schéma Prisma).
-- **Base de données** : créée au premier lancement dans le répertoire applicatif (`userData`, voir `electron/database.ts` et `.data/` en développement).
+- **Base de données** : fichier SQLite créé au **premier lancement** (écriture Prisma), pas à l’installation NSIS seule. Emplacement : `userData` packagé, `.data/samy-soft.sqlite` en dev — voir **Database Lifecycle** dans `README.md` et `docs/database-recovery-and-migration.md`.
 
 ## Première installation
 
 1. Exécuter l’installateur ou le binaire portable.
-2. Au premier lancement, l’application initialise SQLite et exécute les migrations Prisma attendues (flux équipe : CLI `prisma migrate deploy` avant packaging si procédure interne l’impose).
-3. **Premier administrateur** : compte seedé en développement (`admin`, mot de passe seed — **à changer immédiatement** en production) ; en production sans seed, prévoir procédure équipe (création utilisateur initiale via script ou première connexion guidée).
+2. Au premier lancement :
+   - le processus principal crée le dossier données et le fichier SQLite si absent ;
+   - **`ensureDatabaseSchemaReady()`** applique `prisma/bootstrap-schema.sql` sur une base vide (bootstrap runtime — **pas** `migrate deploy` automatique à l’exécution) ;
+   - les diagnostics de démarrage signalent une dérive éventuelle bootstrap / migrations.
+3. **Premier administrateur** : écran de configuration initiale (`/setup`) si aucun utilisateur — en dev uniquement, seed CLI possible (`admin` / mot de passe seed — **à changer** avant production).
 4. **Assistant première installation** (compte **Administrateur**) : assistant modal (usine, dossier sauvegarde, imprimante, session) jusqu’à « Terminer » ou « Ignorer » — clé persistée `onboarding.wizard_done`.
 5. **Paramètres** : nom usine, devise, dossier des sauvegardes ZIP, durée d’inactivité session, imprimante (champs persistés).
 
@@ -26,7 +29,9 @@
 
 ## Variables d’environnement (développement / CI)
 
-- `DATABASE_URL` pour CLI Prisma : typiquement `file:../.data/samy-soft.sqlite` depuis le dossier `prisma/` (voir `docs/progress-log.md` Phase 1).
+- `DATABASE_URL` pour CLI Prisma : typiquement `file:../.data/samy-soft.sqlite` depuis le dossier `prisma/` (aligné sur Electron dev non packagé).
+- `SAMY_E2E` + `SAMY_E2E_DATABASE_PATH` : base isolée `.data/e2e/samye2e.sqlite` pour Playwright (`npm run verify:desktop`).
+- `SAMY_RELEASE_CHANNEL` : bases séparées beta/dev — `docs/release-channels.md`.
 
 ## Mises à jour
 
