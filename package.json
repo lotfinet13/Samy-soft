@@ -14,6 +14,7 @@
     "build:preload": "esbuild electron/preload.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=dist-electron/electron/preload.cjs",
     "preview": "vite preview",
     "lint": "tsc -p tsconfig.json --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p electron/tsconfig.preload.json --noEmit",
+    "typecheck": "npm run lint",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
