@@ -1,4 +1,4 @@
-import { MaterialKind } from "@prisma/client";
+import { MaterialKind } from "../prisma-client.js";
 import { ipcMain } from "electron";
 
 import { IPC_CHANNELS } from "../../shared/ipc-channels.js";

@@ -5,8 +5,9 @@ import { CartesianGrid, ComposedChart, Bar, Legend, Line, ResponsiveContainer, T
 
 import { PageHeader } from "@/components/ui/PageHeader";
 import { usePermissions } from "@/hooks/usePermissions";
+import { AsyncStatePanel } from "@/components/system/AsyncStatePanel";
+import { useAsyncLoad } from "@/hooks/useAsyncLoad";
 import { samyInvoke } from "@/lib/samy";
-import { useCallback, useEffect, useState } from "react";
 
 type MgmtDTO = {
   currencyCode: string;
@@ -27,16 +28,10 @@ type MgmtDTO = {
 
 export function ReportingFinancialSummaryPage() {
   const { can } = usePermissions();
-  const [dto, setDto] = useState<MgmtDTO | null>(null);
-
-  const reload = useCallback(async (): Promise<void> => {
-    const data = await samyInvoke<MgmtDTO>(IPC_CHANNELS.REPORTS_MANAGEMENT_SUMMARY);
-    setDto(data);
-  }, []);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  const { data: dto, loading, error, reload } = useAsyncLoad(
+    () => samyInvoke<MgmtDTO>(IPC_CHANNELS.REPORTS_MANAGEMENT_SUMMARY),
+    [],
+  );
 
   if (!can(PERMISSIONS.REPORTS_FINANCIAL)) return <Navigate to="/rapports" replace />;
 
@@ -44,8 +39,7 @@ export function ReportingFinancialSummaryPage() {
     <div className="flex flex-col gap-4 pb-12">
       <PageHeader title="Synthèse directionnelle estimée" subtitle="Rolling 6 mois — aucune écriture comptable imposée." />
 
-      {!dto ? <p className="text-[13px] text-foreground-muted">Chargement…</p> : null}
-
+      <AsyncStatePanel loading={loading} error={error} onRetry={() => void reload()} loadingLabel="Chargement de la synthèse…">
       {dto?.estimatedMonthlyPl?.length ? (
         <>
           <div className="grid gap-3 sm:grid-cols-4">
@@ -76,6 +70,7 @@ export function ReportingFinancialSummaryPage() {
       ) : dto ? (
         <p className="text-[13px] text-foreground-muted">Historique encore insuffisant pour une courbe.</p>
       ) : null}
+      </AsyncStatePanel>
     </div>
   );
 }

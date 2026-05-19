@@ -12,7 +12,16 @@ import type { SettingsFormValues } from "@/modules/settings/settings-schema";
 
 const STEPS = ["Usine", "Sauvegardes", "Imprimante", "Sécurité"] as const;
 
+function isE2ERuntime(): boolean {
+  return (
+    typeof globalThis !== "undefined" &&
+    (globalThis as { __SAMY_E2E__?: boolean }).__SAMY_E2E__ === true
+  );
+}
+
 export function FirstLaunchWizard(): ReactElement | null {
+  if (isE2ERuntime()) return null;
+
   const user = useAuthStore((s) => s.user);
   const settings = useSettingsStore((s) => s.settings);
   const { can } = usePermissions();
@@ -78,7 +87,7 @@ export function FirstLaunchWizard(): ReactElement | null {
   }
 
   return (
-    <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/55 px-4 py-10">
+    <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/55 px-4 py-10" data-testid="onboarding-wizard">
       <div
         className="flex max-h-[min(92vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border-strong bg-surface-elevated shadow-2xl"
         role="dialog"

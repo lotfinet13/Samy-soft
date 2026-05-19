@@ -2,10 +2,12 @@ import { IPC_CHANNELS } from "@shared/ipc-channels";
 import { PERMISSIONS } from "@shared/permissions";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Dispatch, SetStateAction } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { AsyncStatePanel } from "@/components/system/AsyncStatePanel";
 import { ATTENDANCE_STATUS_OPTIONS } from "@/pages/hr/hr-labels";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useAsyncLoad } from "@/hooks/useAsyncLoad";
 import { usePermissions } from "@/hooks/usePermissions";
 import { samyInvoke } from "@/lib/samy";
 
@@ -174,43 +176,42 @@ export function HrAttendanceDayPage() {
   const todayLocal = new Date();
   const defaultDate = `${todayLocal.getFullYear()}-${String(todayLocal.getMonth() + 1).padStart(2, "0")}-${String(todayLocal.getDate()).padStart(2, "0")}`;
   const [dateStr, setDateStr] = useState(defaultDate);
-  const [matrix, setMatrix] = useState<Matrix | null>(null);
   const [rows, setRows] = useState<RowState[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const res = await samyInvoke<Matrix>(IPC_CHANNELS.HR_ATTENDANCE_DAY_MATRIX, { date: dateStr });
-      setMatrix(res);
-      setRows(
-        res.workers.map((w, i) => {
-          const r = res.records[i];
-          return {
-            id: r?.id,
-            workerId: w.id,
-            status: r?.status ?? "PRESENT",
-            overtimeHours: r?.overtimeHours ?? "0",
-            notes: r?.notes ?? "",
-          };
-        }),
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [dateStr]);
+  const {
+    data: matrix,
+    loading,
+    error,
+    reload: load,
+  } = useAsyncLoad(
+    () => samyInvoke<Matrix>(IPC_CHANNELS.HR_ATTENDANCE_DAY_MATRIX, { date: dateStr }),
+    [dateStr],
+  );
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!matrix) return;
+    setRows(
+      matrix.workers.map((w, i) => {
+        const r = matrix.records[i];
+        return {
+          id: r?.id,
+          workerId: w.id,
+          status: r?.status ?? "PRESENT",
+          overtimeHours: r?.overtimeHours ?? "0",
+          notes: r?.notes ?? "",
+        };
+      }),
+    );
+  }, [matrix]);
 
   if (!can(PERMISSIONS.HR_READ)) return <Navigate to="/" replace />;
 
   async function saveBulk(): Promise<void> {
     if (!can(PERMISSIONS.HR_WRITE)) return;
     setBusy(true);
-    setError(null);
+    setSaveError(null);
     try {
       await samyInvoke(IPC_CHANNELS.HR_ATTENDANCE_BULK_UPSERT, {
         items: rows.map((r) => ({
@@ -224,7 +225,7 @@ export function HrAttendanceDayPage() {
       });
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setSaveError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -260,18 +261,20 @@ export function HrAttendanceDayPage() {
         <span className="text-[11px] text-foreground-muted">{matrix?.workers.length ?? 0} employés actifs</span>
       </div>
 
-      {error ? (
-        <p className="rounded border border-danger/40 bg-danger/10 px-2 py-1.5 text-[12px] text-danger">{error}</p>
+      {saveError ? (
+        <p className="rounded border border-danger/40 bg-danger/10 px-2 py-1.5 text-[12px] text-danger">{saveError}</p>
       ) : null}
 
-      {matrix ? (
-        <AttendanceWorkerTable
-          matrix={matrix}
-          rows={rows}
-          setRows={setRows}
-          canWrite={can(PERMISSIONS.HR_WRITE)}
-        />
-      ) : null}
+      <AsyncStatePanel loading={loading} error={error} onRetry={() => void load()} loadingLabel="Chargement de la matrice présence…">
+        {matrix ? (
+          <AttendanceWorkerTable
+            matrix={matrix}
+            rows={rows}
+            setRows={setRows}
+            canWrite={can(PERMISSIONS.HR_WRITE)}
+          />
+        ) : null}
+      </AsyncStatePanel>
     </div>
   );
 }

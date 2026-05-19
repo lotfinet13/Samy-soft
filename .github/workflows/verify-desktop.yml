@@ -1,0 +1,118 @@
+# Desktop release gate — mirrors `npm run verify:desktop` on every push/PR.
+# Fails on: lint/typecheck, migration drift, unit/IPC tests, Electron E2E, bootstrap drift.
+name: verify-desktop
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+concurrency:
+  group: verify-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-desktop:
+    name: Windows desktop gate
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      CI: "true"
+      SAMY_E2E: "1"
+      SAMY_SKIP_DEVTOOLS: "1"
+      SAMY_E2E_DATABASE_PATH: .data/e2e/samye2e.sqlite
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Cache Prisma client engines
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules/.prisma
+            node_modules/@prisma/client
+          key: prisma-${{ runner.os }}-${{ hashFiles('prisma/schema.prisma', 'package-lock.json') }}
+          restore-keys: |
+            prisma-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Desktop verify gate
+        run: npm run verify:desktop
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload Playwright JSON results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: playwright-results.json
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload test traces (screenshots/videos)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload E2E Electron artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: e2e/artifacts/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload Vitest coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-coverage
+          path: |
+            coverage/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload verify log snapshot
+        if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ci-logs | Out-Null
+          Get-ChildItem -Recurse e2e/artifacts -ErrorAction SilentlyContinue | Copy-Item -Destination ci-logs -Recurse -Force -ErrorAction SilentlyContinue
+          if (Test-Path playwright-results.json) { Copy-Item playwright-results.json ci-logs/ }
+      - name: Archive CI logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-desktop-logs
+          path: ci-logs/
+          retention-days: 30
+          if-no-files-found: ignore

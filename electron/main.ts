@@ -4,7 +4,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, dialog } from "electron";
 import { configureDatabaseUrl, getPrisma } from "./database.js";
 import { registerIpcHandlers } from "./ipc/handlers.js";
-import { appendSamyMainLog, captureMainProcessError } from "./services/logger-service.js";
+import { ensureDatabaseSchemaReady } from "./services/database-schema-service.js";
+import { appendSamyMainLog, appendStructuredEvent, captureMainProcessError } from "./services/logger-service.js";
+import { runStartupDiagnostics } from "./services/startup-diagnostics-service.js";
 import { setupBackupScheduler } from "./services/backup-scheduler.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -131,12 +133,27 @@ void app.whenReady().then(async () => {
 
   try {
     await getPrisma().$connect();
+    await ensureDatabaseSchemaReady();
+    const startupDiag = await runStartupDiagnostics(getPrisma());
+    if (!startupDiag.ok) {
+      await appendStructuredEvent("warn", {
+        scope: "startup-diagnostics",
+        bootstrapDrift: startupDiag.bootstrapSchema.driftDetected,
+        migrationPending: startupDiag.migrations.pendingCount,
+        fkViolations: startupDiag.foreignKeys.violations.length,
+        integrityIssues: startupDiag.businessIntegrity.issueCount,
+      });
+      await appendSamyMainLog("WARN startup diagnostics", {
+        bootstrap: startupDiag.bootstrapSchema.detail,
+        fk: startupDiag.foreignKeys.violations.slice(0, 5),
+      });
+    }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Erreur inconnue à la connexion SQLite.";
     dialog.showErrorBox(
       "SAMY SOFT — Base de données",
-      `Impossible d'ouvrir la base locale.\n\n${message}`,
+      `Impossible d'initialiser la base locale.\n\n${message}`,
     );
     app.quit();
     return;

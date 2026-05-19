@@ -9,6 +9,7 @@ export const CACHE_KEYS = {
 
 export const CACHE_PREFIX = {
   INVENTORY: "ipc:inventory:",
+  PRODUCTION: "ipc:production:",
   SALES: "ipc:sales:",
   HR: "ipc:hr:",
   REPORTS: "ipc:reports:",

@@ -33,8 +33,10 @@ export function SplashScreen() {
 export function ProtectedRoute() {
   const hydrated = useAuthStore((state) => state.hydrated);
   const user = useAuthStore((state) => state.user);
+  const bootstrapRequired = useAuthStore((state) => state.bootstrapRequired);
 
   if (!hydrated) return <SplashScreen />;
+  if (bootstrapRequired) return <Navigate to="/setup" replace />;
   if (!user) return <Navigate to="/login" replace />;
 
   return <Outlet />;

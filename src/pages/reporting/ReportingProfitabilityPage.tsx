@@ -1,6 +1,8 @@
 import { IPC_CHANNELS } from "@shared/ipc-channels";
 import { PERMISSIONS } from "@shared/permissions";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { AsyncStatePanel } from "@/components/system/AsyncStatePanel";
+import { useAsyncLoad } from "@/hooks/useAsyncLoad";
 import { Navigate } from "react-router-dom";
 import { BarChart, Bar, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -48,8 +50,6 @@ export function ReportingProfitabilityPage() {
   const [from, setFrom] = useState(() => rangeLastMonth().from.slice(0, 10));
   const [to, setTo] = useState(() => rangeLastMonth().to.slice(0, 10));
 
-  const [dto, setDto] = useState<ProfitOverview | null>(null);
-
   const iso = useMemo(
     () => ({
       from: new Date(`${from}T00:00:00.000Z`).toISOString(),
@@ -58,15 +58,11 @@ export function ReportingProfitabilityPage() {
     [from, to],
   );
 
-  const reload = useCallback(async (): Promise<void> => {
-    if (!can(PERMISSIONS.REPORTS_FINANCIAL)) return;
-    const data = await samyInvoke<ProfitOverview>(IPC_CHANNELS.REPORTS_PROFITABILITY_OVERVIEW, iso);
-    setDto(data);
-  }, [can, iso]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  const { data: dto, loading, error, reload } = useAsyncLoad(
+    () => samyInvoke<ProfitOverview>(IPC_CHANNELS.REPORTS_PROFITABILITY_OVERVIEW, iso),
+    [iso.from, iso.to],
+    { immediate: can(PERMISSIONS.REPORTS_FINANCIAL) },
+  );
 
   if (!can(PERMISSIONS.REPORTS_FINANCIAL)) return <Navigate to="/rapports" replace />;
 
@@ -124,6 +120,7 @@ export function ReportingProfitabilityPage() {
         </button>
       </section>
 
+      <AsyncStatePanel loading={loading} error={error} onRetry={() => void reload()} loadingLabel="Calcul de la rentabilité…">
       {dto ? (
         <section className="grid gap-3 md:grid-cols-3">
           <MiniStat label="CA validé DA" value={Math.round(dto.revenueValidated).toLocaleString("fr-DZ")} tone="muted" />
@@ -170,6 +167,7 @@ export function ReportingProfitabilityPage() {
       ) : (
         <Empty />
       )}
+      </AsyncStatePanel>
     </div>
   );
 }

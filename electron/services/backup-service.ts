@@ -4,7 +4,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { app } from "electron";
 import AdmZip from "adm-zip";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "../prisma-client.js";
 import { APP_SETTING_KEYS } from "../../shared/settings-keys.js";
 import {
   disconnectPrisma,

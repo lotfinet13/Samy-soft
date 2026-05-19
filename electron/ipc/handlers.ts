@@ -11,7 +11,10 @@ import {
   resolveSessionUser,
   sessionHasPermission,
 } from "../services/auth-service.js";
+import { createInitialAdmin, getBootstrapStatus } from "../services/bootstrap-service.js";
+import { ensureDatabaseSchemaReady } from "../services/database-schema-service.js";
 import { readPublicBranding } from "../services/branding-service.js";
+import { captureMainProcessError } from "../services/logger-service.js";
 import { getAllSettings, upsertSettings } from "../services/settings-service.js";
 import { registerHrHandlers } from "./hr-handlers.js";
 import { registerInventoryHandlers } from "./inventory-handlers.js";
@@ -49,6 +52,30 @@ export function registerIpcHandlers(): void {
       platform: process.platform,
     } as const;
   });
+
+  ipcMain.handle(IPC_CHANNELS.BOOTSTRAP_STATUS, async () => {
+    await ensureDatabaseSchemaReady();
+    const prisma = getPrisma();
+    return getBootstrapStatus(prisma);
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.BOOTSTRAP_CREATE_ADMIN,
+    async (_evt, payload: { username: string; password: string; displayName?: string }) => {
+      try {
+        await ensureDatabaseSchemaReady();
+        const prisma = getPrisma();
+        const user = await createInitialAdmin(prisma, payload);
+        const branding = await readPublicBranding(prisma);
+        return { ok: true as const, user, branding };
+      } catch (error) {
+        await captureMainProcessError("bootstrap:create-admin", error, {
+          username: payload?.username,
+        });
+        throw error;
+      }
+    },
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.AUTH_LOGIN,

@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import { InventoryMovementKind } from "@prisma/client";
+import { InventoryMovementKind } from "../prisma-client.js";
 import { IPC_CHANNELS } from "../../shared/ipc-channels.js";
 import {
   mixerLogListSchema,
@@ -23,6 +23,7 @@ import {
   decimalToString,
   parseDecimal,
 } from "../services/inventory-service.js";
+import { toIpcPayload } from "../utils/serialize-for-ipc.js";
 import {
   computeProductionSignals,
   completeProductionBatch,
@@ -71,6 +72,43 @@ function readCostSnapshot(metadataRaw: string): string {
   } catch {
     return "";
   }
+}
+
+/** IPC-safe recipe metadata after create/update/duplicate (no Prisma.Decimal / Date). */
+function serializeRecipeMeta(recipe: {
+  id: string;
+  code: string;
+  labelFr: string;
+  category: string | null;
+  description: string | null;
+  productionNotes: string | null;
+  yieldQty: unknown;
+  yieldUnit: string;
+  estimatedMinutes: number | null;
+  recipeVersion: number | null;
+  isActive: boolean;
+  parentRecipeId: string | null;
+  outputPackagingMaterialId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: recipe.id,
+    code: recipe.code,
+    labelFr: recipe.labelFr,
+    category: recipe.category,
+    description: recipe.description,
+    productionNotes: recipe.productionNotes,
+    yieldQtySerialized: decimalToString(recipe.yieldQty),
+    yieldUnit: recipe.yieldUnit,
+    estimatedMinutes: recipe.estimatedMinutes,
+    recipeVersion: recipe.recipeVersion,
+    isActive: recipe.isActive,
+    parentRecipeId: recipe.parentRecipeId,
+    outputPackagingMaterialId: recipe.outputPackagingMaterialId,
+    createdAt: recipe.createdAt.toISOString(),
+    updatedAt: recipe.updatedAt.toISOString(),
+  };
 }
 
 export function registerProductionHandlers(): void {
@@ -239,7 +277,7 @@ export function registerProductionHandlers(): void {
       metadata: { code: persisted.code },
     });
 
-    return persisted;
+    return toIpcPayload(serializeRecipeMeta(persisted), IPC_CHANNELS.PRODUCTION_RECIPE_UPSERT);
   });
 
   ipcMain.handle(IPC_CHANNELS.PRODUCTION_RECIPE_INGREDIENTS_REPLACE, async (_evt, payload: unknown) => {
@@ -296,7 +334,7 @@ export function registerProductionHandlers(): void {
       metadata: { source: dto.recipeId },
     });
 
-    return cloned;
+    return toIpcPayload(serializeRecipeMeta(cloned), IPC_CHANNELS.PRODUCTION_RECIPE_DUPLICATE);
   });
 
   ipcMain.handle(IPC_CHANNELS.PRODUCTION_PREVIEW_SHORTAGES, async (_evt, payload: unknown) => {

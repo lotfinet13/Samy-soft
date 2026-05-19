@@ -12,6 +12,8 @@ import { DataTable } from "@/components/ui/DataTable";
 import { FormField } from "@/components/ui/FormField";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { usePermissions } from "@/hooks/usePermissions";
+import { invalidateInventoryCaches } from "@/lib/invalidate-ui-cache";
+import { runSamyMutation } from "@/lib/run-mutation";
 import { samyInvoke } from "@/lib/samy";
 
 type FormValues = z.input<typeof supplierUpsertSchema>;
@@ -38,24 +40,36 @@ export function InventorySuppliersPage() {
 
   const [rows, setRows] = useState<SupplierRow[]>([]);
   const [meta, setMeta] = useState({ total: 0, page: 1, pageSize: 40 });
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
 
   const form = useForm<FormValues>({
     resolver: zodResolver(supplierUpsertSchema),
     defaultValues: emptySupplier(),
   });
 
-  async function reload(page = meta.page): Promise<void> {
-    const res = await samyInvoke<SupplierListPayload>(IPC_CHANNELS.INVENTORY_SUPPLIER_LIST, {
-      page,
-      pageSize: meta.pageSize,
-    });
-    setRows(res.items);
-    setMeta({ total: res.total, page: res.page, pageSize: res.pageSize });
+  async function reload(page = meta.page, q?: string): Promise<void> {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await samyInvoke<SupplierListPayload>(IPC_CHANNELS.INVENTORY_SUPPLIER_LIST, {
+        page,
+        pageSize: meta.pageSize,
+        ...(q && q.trim().length > 0 ? { q: q.trim() } : {}),
+      });
+      setRows(res.items);
+      setMeta({ total: res.total, page: res.page, pageSize: res.pageSize });
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Impossible de charger les fournisseurs.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    void reload(1).catch(console.error);
+    void reload(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- chargement puis pagination locale
   }, []);
 
@@ -132,9 +146,23 @@ export function InventorySuppliersPage() {
       address: values.address?.trim() ? values.address.trim() : null,
       notes: values.notes?.trim() ? values.notes.trim() : null,
     });
-    await samyInvoke(IPC_CHANNELS.INVENTORY_SUPPLIER_UPSERT, normalized);
-    setModalOpen(false);
-    await reload(meta.page).catch(console.error);
+    const isNew = !form.getValues("id");
+    const createdName = normalized.name;
+    const ok = await runSamyMutation({
+      channel: IPC_CHANNELS.INVENTORY_SUPPLIER_UPSERT,
+      payload: normalized,
+      successMessage: form.watch("id") ? "Fournisseur mis à jour." : "Fournisseur créé.",
+      onSettled: () => {
+        invalidateInventoryCaches();
+        if (isNew && createdName.length > 0) {
+          void reload(1, createdName);
+        } else {
+          const pageAfterCreate = Math.max(1, Math.ceil((meta.total + 1) / meta.pageSize));
+          void reload(pageAfterCreate);
+        }
+      },
+    });
+    if (ok !== null) setModalOpen(false);
   }
 
   return (
@@ -147,6 +175,7 @@ export function InventorySuppliersPage() {
             <button
               type="button"
               className="focus-ring inline-flex min-h-touch items-center gap-2 border border-accent bg-accent px-3 py-2 text-[12px] font-semibold text-accent-foreground hover:opacity-95"
+              data-testid="supplier-modal-open"
               onClick={() => openNew()}
             >
               <Plus className="h-[15px] w-[15px]" aria-hidden /> Nouveau fournisseur
@@ -155,7 +184,46 @@ export function InventorySuppliersPage() {
         }
       />
 
-      <DataTable columns={columns} data={rows} emptyLabel="Aucun fournisseur encore déclaré." />
+      {loadError ? (
+        <p className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{loadError}</p>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          placeholder="Rechercher un fournisseur"
+          className="control-chrome w-64 font-mono"
+          data-testid="supplier-list-search"
+          value={searchQ}
+          onChange={(event) => setSearchQ(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void reload(1, searchQ);
+          }}
+        />
+        <button
+          type="button"
+          className="focus-ring border border-border bg-surface-muted px-3 py-1.5 text-[12px] font-semibold hover:bg-surface"
+          onClick={() => void reload(1, searchQ)}
+        >
+          Rechercher
+        </button>
+        {searchQ.trim().length > 0 ? (
+          <button
+            type="button"
+            className="focus-ring border border-border bg-surface-muted px-3 py-1.5 text-[12px] font-semibold hover:bg-surface"
+            onClick={() => {
+              setSearchQ("");
+              void reload(1, "");
+            }}
+          >
+            Réinitialiser
+          </button>
+        ) : null}
+      </div>
+      <DataTable
+        columns={columns}
+        data={rows}
+        loading={loading}
+        emptyLabel="Aucun fournisseur encore déclaré."
+      />
 
       <div className="flex justify-between gap-4 text-[11px] text-foreground-muted">
         <button
@@ -181,7 +249,11 @@ export function InventorySuppliersPage() {
 
       <Modal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => {
+          setModalOpen(false);
+          form.reset(emptySupplier());
+        }}
+        testId="supplier-modal"
         title={form.watch("id") ? "Modifier le fournisseur" : "Nouveau fournisseur"}
         footer={
           <button
@@ -195,7 +267,7 @@ export function InventorySuppliersPage() {
       >
         <form className="space-y-4" onSubmit={form.handleSubmit(submit)}>
           <FormField label="Raison sociale" error={form.formState.errors.name?.message}>
-            <input className="control-chrome w-full font-semibold" {...form.register("name")} />
+            <input className="control-chrome w-full font-semibold" data-testid="supplier-modal-name" {...form.register("name")} />
           </FormField>
           <div className="grid gap-4 md:grid-cols-2">
             <FormField label="Contact">
@@ -222,10 +294,11 @@ export function InventorySuppliersPage() {
           {canWrite ? (
             <button
               type="submit"
+              data-testid="supplier-modal-submit"
               className="focus-ring w-full border border-accent bg-accent py-2 text-[12px] font-semibold text-accent-foreground"
               disabled={form.formState.isSubmitting}
             >
-              Enregistrer
+              {form.formState.isSubmitting ? "Enregistrement…" : "Enregistrer"}
             </button>
           ) : null}
         </form>

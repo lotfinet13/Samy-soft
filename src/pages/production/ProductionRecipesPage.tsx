@@ -10,6 +10,8 @@ import { DataTable } from "@/components/ui/DataTable";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { usePermissions } from "@/hooks/usePermissions";
+import { invalidateInventoryCaches, invalidateProductionCaches } from "@/lib/invalidate-ui-cache";
+import { notifySuccess } from "@/lib/notify";
 import { samyInvoke } from "@/lib/samy";
 
 type UnitCode = "KG" | "G" | "L" | "ML" | "UNIT";
@@ -84,6 +86,7 @@ export function ProductionRecipesPage() {
   const canWrite = can(PERMISSIONS.PRODUCTION_WRITE);
   const [rows, setRows] = useState<RecipeRow[]>([]);
   const [meta, setMeta] = useState({ page: 1, pageSize: 30, total: 0 });
+  const [loading, setLoading] = useState(true);
   const [activeRecipe, setActiveRecipe] = useState<RecipeDetail | null>(null);
   const [catalog, setCatalog] = useState<RawBrief[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -103,18 +106,23 @@ export function ProductionRecipesPage() {
   });
 
   async function reloadRecipeIndex(page = meta.page): Promise<void> {
-    const res = await samyInvoke<{ items: RecipeRow[]; total: number; page: number; pageSize: number }>(
-      IPC_CHANNELS.PRODUCTION_RECIPE_LIST,
-      {
-        page,
-        pageSize: meta.pageSize,
-        q: "",
-        category: "",
-        includeInactive: true,
-      },
-    );
-    setRows(res.items);
-    setMeta({ total: res.total, page: res.page, pageSize: res.pageSize });
+    setLoading(true);
+    try {
+      const res = await samyInvoke<{ items: RecipeRow[]; total: number; page: number; pageSize: number }>(
+        IPC_CHANNELS.PRODUCTION_RECIPE_LIST,
+        {
+          page,
+          pageSize: meta.pageSize,
+          q: "",
+          category: "",
+          includeInactive: true,
+        },
+      );
+      setRows(res.items);
+      setMeta({ total: res.total, page: res.page, pageSize: res.pageSize });
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -211,8 +219,10 @@ export function ProductionRecipesPage() {
       isActive: true,
     });
     await samyInvoke(IPC_CHANNELS.PRODUCTION_RECIPE_UPSERT, parsed);
+    invalidateProductionCaches();
+    notifySuccess("Recette enregistrée.");
     setEditorOpen(false);
-    await reloadRecipeIndex(meta.page).catch(console.error);
+    await reloadRecipeIndex(meta.page);
   }
 
   async function synchronizeBom(): Promise<void> {
@@ -231,7 +241,10 @@ export function ProductionRecipesPage() {
         })),
     });
     await samyInvoke(IPC_CHANNELS.PRODUCTION_RECIPE_INGREDIENTS_REPLACE, dto);
-    await reloadRecipeIndex(meta.page).catch(console.error);
+    invalidateProductionCaches();
+    invalidateInventoryCaches();
+    notifySuccess("Nomenclature (BOM) synchronisée.");
+    await reloadRecipeIndex(meta.page);
     setBuilderOpen(false);
   }
 
@@ -249,7 +262,7 @@ export function ProductionRecipesPage() {
           ) : null
         }
       />
-      <DataTable columns={columns} data={rows} emptyLabel="Aucune fiche formulée encore." />
+      <DataTable columns={columns} data={rows} loading={loading} emptyLabel="Aucune fiche formulée encore." />
       <Pagination meta={meta} onChange={(next) => reloadRecipeIndex(next).catch(console.error)} />
 
       <Modal title="Référenciation mère" open={editorOpen} onClose={() => setEditorOpen(false)}>

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { app } from "electron";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "../prisma-client.js";
 import { sqliteFileStats } from "./db-maintenance.js";
 import { getBackupHealth } from "./backup-service.js";
 import { recordDeploymentCert } from "./qa-metrics-service.js";

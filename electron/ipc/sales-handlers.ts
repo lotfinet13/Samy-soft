@@ -1,6 +1,5 @@
 import { ipcMain } from "electron";
-import { InvoiceStatus, MaterialKind } from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
+import { Decimal, InvoiceStatus, MaterialKind } from "../prisma-client.js";
 
 import { IPC_CHANNELS } from "../../shared/ipc-channels.js";
 import { PERMISSIONS } from "../../shared/permissions.js";
@@ -94,11 +93,44 @@ function serializeProduct(row: {
   updatedAt: Date;
 }) {
   return {
-    ...row,
+    id: row.id,
+    sku: row.sku,
+    name: row.name,
+    category: row.category,
     sellingPriceSerialized: decimalToString(row.sellingPrice),
+    unit: row.unit,
+    recipeId: row.recipeId,
+    packagingMaterialId: row.packagingMaterialId,
+    barcode: row.barcode,
+    notes: row.notes,
+    isActive: row.isActive,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+function serializePackagingBrief(row: {
+  id: string;
+  sku: string;
+  labelFr: string;
+  currentQty?: unknown;
+  unit?: string;
+} | null) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    sku: row.sku,
+    labelFr: row.labelFr,
+    ...(row.currentQty !== undefined
+      ? { currentQtySerialized: decimalToString(row.currentQty) }
+      : {}),
+    ...(row.unit !== undefined ? { unit: row.unit } : {}),
+  };
+}
+
+function serializeRecipeBrief(row: { id: string; code: string; labelFr: string } | null) {
+  if (!row) return null;
+  return { id: row.id, code: row.code, labelFr: row.labelFr };
 }
 
 function serializeInvoiceHeader(row: {
@@ -125,7 +157,17 @@ function serializeInvoiceHeader(row: {
   updatedAt: Date;
 }) {
   return {
-    ...row,
+    id: row.id,
+    number: row.number,
+    customerId: row.customerId,
+    status: row.status,
+    paymentStatus: row.paymentStatus,
+    paymentMethod: row.paymentMethod,
+    currencyCode: row.currencyCode,
+    notes: row.notes,
+    metadata: row.metadata,
+    createdById: row.createdById,
+    validatedById: row.validatedById,
     issuedAt: row.issuedAt.toISOString(),
     dueAt: row.dueAt?.toISOString() ?? null,
     validatedAt: row.validatedAt?.toISOString() ?? null,
@@ -136,6 +178,58 @@ function serializeInvoiceHeader(row: {
     taxAmountSerialized: decimalToString(row.taxAmount),
     discountAmountSerialized: decimalToString(row.discountAmount),
     totalAmountSerialized: decimalToString(row.totalAmount),
+  };
+}
+
+function serializeInvoiceItem(row: {
+  id: string;
+  invoiceId: string;
+  productId: string | null;
+  labelFr: string;
+  skuSnapshot: string | null;
+  sortOrder: number;
+  quantity: unknown;
+  unitPrice: unknown;
+  lineDiscount: unknown;
+  taxRate: unknown;
+  lineSubtotal: unknown;
+  lineTax: unknown;
+  lineTotal: unknown;
+}) {
+  return {
+    id: row.id,
+    invoiceId: row.invoiceId,
+    productId: row.productId,
+    labelFr: row.labelFr,
+    skuSnapshot: row.skuSnapshot,
+    sortOrder: row.sortOrder,
+    quantitySerialized: decimalToString(row.quantity),
+    unitPriceSerialized: decimalToString(row.unitPrice),
+    lineDiscountSerialized: decimalToString(row.lineDiscount),
+    taxRateSerialized: decimalToString(row.taxRate),
+    lineSubtotalSerialized: decimalToString(row.lineSubtotal),
+    lineTaxSerialized: decimalToString(row.lineTax),
+    lineTotalSerialized: decimalToString(row.lineTotal),
+  };
+}
+
+function serializePayment(row: {
+  id: string;
+  invoiceId: string;
+  amount: unknown;
+  method: string;
+  reference: string | null;
+  paidAt: Date;
+  createdAt: Date;
+}) {
+  return {
+    id: row.id,
+    invoiceId: row.invoiceId,
+    method: row.method,
+    reference: row.reference,
+    amountSerialized: decimalToString(row.amount),
+    paidAt: row.paidAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
   };
 }
 
@@ -307,8 +401,8 @@ export function registerSalesHandlers(): void {
         }
         return {
           ...serializeProduct(r),
-          packagingMaterial: r.packagingMaterial,
-          recipe: r.recipe,
+          packagingMaterial: serializePackagingBrief(r.packagingMaterial),
+          recipe: serializeRecipeBrief(r.recipe),
           stockQtySerialized,
         };
       }),
@@ -335,7 +429,12 @@ export function registerSalesHandlers(): void {
       const q = await getCurrentQty(prisma, MaterialKind.PACKAGING, row.packagingMaterialId);
       stockQtySerialized = decimalToString(q);
     }
-    return { ...serializeProduct(row), packagingMaterial: row.packagingMaterial, recipe: row.recipe, stockQtySerialized };
+    return {
+      ...serializeProduct(row),
+      packagingMaterial: serializePackagingBrief(row.packagingMaterial),
+      recipe: serializeRecipeBrief(row.recipe),
+      stockQtySerialized,
+    };
   });
 
   ipcMain.handle(IPC_CHANNELS.SALES_PRODUCT_UPSERT, async (_evt, payload: unknown) => {
@@ -452,23 +551,8 @@ export function registerSalesHandlers(): void {
     });
     if (!row) throw new Error("Facture introuvable.");
 
-    const payments = row.payments.map((p) => ({
-      ...p,
-      amountSerialized: decimalToString(p.amount),
-      paidAt: p.paidAt.toISOString(),
-      createdAt: p.createdAt.toISOString(),
-    }));
-
-    const items = row.items.map((it) => ({
-      ...it,
-      quantitySerialized: decimalToString(it.quantity),
-      unitPriceSerialized: decimalToString(it.unitPrice),
-      lineDiscountSerialized: decimalToString(it.lineDiscount),
-      taxRateSerialized: decimalToString(it.taxRate),
-      lineSubtotalSerialized: decimalToString(it.lineSubtotal),
-      lineTaxSerialized: decimalToString(it.lineTax),
-      lineTotalSerialized: decimalToString(it.lineTotal),
-    }));
+    const payments = row.payments.map(serializePayment);
+    const items = row.items.map(serializeInvoiceItem);
 
     const paidSum = payments.reduce((acc, p) => acc.add(parseDecimal(p.amountSerialized)), parseDecimal("0"));
     const total = parseDecimal(decimalToString(row.totalAmount));

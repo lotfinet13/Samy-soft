@@ -1,8 +1,10 @@
 import { IPC_CHANNELS } from "@shared/ipc-channels";
 import { PERMISSIONS } from "@shared/permissions";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { AsyncStatePanel } from "@/components/system/AsyncStatePanel";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useAsyncLoad } from "@/hooks/useAsyncLoad";
 import { usePermissions } from "@/hooks/usePermissions";
 import { samyInvoke } from "@/lib/samy";
 
@@ -18,30 +20,21 @@ export function HrAttendanceCalendarPage() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
-  const [counts, setCounts] = useState<Record<string, { total: number; absent: number }>>({});
-  const [error, setError] = useState<string | null>(null);
-
   const { from, to } = useMemo(() => monthBounds(year, month), [year, month]);
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await samyInvoke<{ items: Array<{ workedDate: string; status: string }> }>(
-          IPC_CHANNELS.HR_ATTENDANCE_LIST,
-          { from, to },
-        );
-        const map: Record<string, { total: number; absent: number }> = {};
-        for (const row of res.items) {
-          const key = row.workedDate.slice(0, 10);
-          if (!map[key]) map[key] = { total: 0, absent: 0 };
-          map[key].total += 1;
-          if (row.status === "ABSENT") map[key].absent += 1;
-        }
-        setCounts(map);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
+  const { data: counts, loading, error, reload } = useAsyncLoad(async () => {
+    const res = await samyInvoke<{ items: Array<{ workedDate: string; status: string }> }>(
+      IPC_CHANNELS.HR_ATTENDANCE_LIST,
+      { from, to },
+    );
+    const map: Record<string, { total: number; absent: number }> = {};
+    for (const row of res.items) {
+      const key = row.workedDate.slice(0, 10);
+      if (!map[key]) map[key] = { total: 0, absent: 0 };
+      map[key].total += 1;
+      if (row.status === "ABSENT") map[key].absent += 1;
+    }
+    return map;
   }, [from, to]);
 
   if (!can(PERMISSIONS.HR_READ)) return <Navigate to="/" replace />;
@@ -86,10 +79,7 @@ export function HrAttendanceCalendarPage() {
         </span>
       </div>
 
-      {error ? (
-        <p className="rounded border border-danger/40 bg-danger/10 px-2 py-1.5 text-[12px] text-danger">{error}</p>
-      ) : null}
-
+      <AsyncStatePanel loading={loading} error={error} onRetry={() => void reload()} loadingLabel="Chargement du calendrier présence…">
       <div className="overflow-x-auto rounded-[var(--erp-radius-panel)] border border-border bg-surface">
         <table className="w-full border-collapse text-center text-[11px]">
           <thead>
@@ -102,7 +92,7 @@ export function HrAttendanceCalendarPage() {
           <tbody>
             {days.map((d) => {
               const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-              const c = counts[key];
+              const c = counts?.[key];
               return (
                 <tr key={key} className="border-b border-border/70">
                   <td className="py-1 font-mono">{key}</td>
@@ -114,6 +104,7 @@ export function HrAttendanceCalendarPage() {
           </tbody>
         </table>
       </div>
+      </AsyncStatePanel>
     </div>
   );
 }

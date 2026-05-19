@@ -1,4 +1,4 @@
-import { useRef, useCallback, type KeyboardEvent } from "react";
+import { useRef, useCallback, type KeyboardEvent, type ReactNode } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -10,9 +10,57 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn";
 
+function StaticTableMessage<TData>({
+  table,
+  columnCount,
+  message,
+}: {
+  table: Table<TData>;
+  columnCount: number;
+  message: ReactNode;
+}) {
+  return (
+    <div className="overflow-auto rounded-2xl border border-border bg-surface-elevated shadow-sm">
+      <table className="min-w-full border-separate border-spacing-0">
+        <thead>
+          {table.getHeaderGroups().map((headerGroup) => (
+            <tr key={headerGroup.id} className="bg-surface-muted">
+              {headerGroup.headers.map((header) => (
+                <th
+                  key={header.id}
+                  className={cn(
+                    "border-b border-border px-4 py-4 text-left text-sm font-semibold text-foreground",
+                  )}
+                >
+                  {header.isPlaceholder
+                    ? null
+                    : flexRender(header.column.columnDef.header, header.getContext())}
+                </th>
+              ))}
+            </tr>
+          ))}
+        </thead>
+        <tbody>
+          <tr>
+            <td
+              className="px-4 py-10 text-center text-base text-foreground-muted"
+              colSpan={columnCount}
+            >
+              {message}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export type DataTableProps<TData> = {
   data: TData[];
   columns: ColumnDef<TData, unknown>[];
+  /** When true, shows a loading row instead of empty/data. */
+  loading?: boolean;
+  loadingLabel?: string;
   emptyLabel?: string;
   /** Nombre minimum de lignes pour activer la virtualisation (défaut : 18). `false` = jamais. */
   virtualizeThreshold?: number | false;
@@ -22,11 +70,18 @@ export type DataTableProps<TData> = {
   estimatedRowHeight?: number;
 };
 
+function isSamyE2eMode(): boolean {
+  return typeof globalThis !== "undefined" && (globalThis as { __SAMY_E2E__?: boolean }).__SAMY_E2E__ === true;
+}
+
 export function DataTable<TData>(props: DataTableProps<TData>) {
-  const threshold = props.virtualizeThreshold === false ? Infinity : (props.virtualizeThreshold ?? 18);
+  const defaultThreshold = isSamyE2eMode() ? Infinity : 18;
+  const threshold =
+    props.virtualizeThreshold === false ? Infinity : (props.virtualizeThreshold ?? defaultThreshold);
   const maxH = props.virtualMaxHeight ?? "min(70vh, 640px)";
   const rowH = props.estimatedRowHeight ?? 52;
   const emptyLabel = props.emptyLabel ?? "Aucune donnée disponible.";
+  const loadingLabel = props.loadingLabel ?? "Chargement…";
 
   const table = useReactTable({
     data: props.data,
@@ -36,40 +91,15 @@ export function DataTable<TData>(props: DataTableProps<TData>) {
 
   const rows = table.getRowModel().rows;
 
+  if (props.loading) {
+    return (
+      <StaticTableMessage table={table} columnCount={props.columns.length} message={loadingLabel} />
+    );
+  }
+
   if (rows.length === 0) {
     return (
-      <div className="overflow-auto rounded-2xl border border-border bg-surface-elevated shadow-sm">
-        <table className="min-w-full border-separate border-spacing-0">
-          <thead>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id} className="bg-surface-muted">
-                {headerGroup.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    className={cn(
-                      "border-b border-border px-4 py-4 text-left text-sm font-semibold text-foreground",
-                    )}
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            <tr>
-              <td
-                className="px-4 py-10 text-center text-base text-foreground-muted"
-                colSpan={props.columns.length}
-              >
-                {emptyLabel}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <StaticTableMessage table={table} columnCount={props.columns.length} message={emptyLabel} />
     );
   }
 

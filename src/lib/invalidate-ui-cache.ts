@@ -6,6 +6,10 @@ export function invalidateInventoryCaches(): void {
   cacheInvalidatePrefix(CACHE_PREFIX.INVENTORY);
 }
 
+export function invalidateProductionCaches(): void {
+  cacheInvalidatePrefix(CACHE_PREFIX.PRODUCTION);
+}
+
 export function invalidateSalesCaches(): void {
   cacheInvalidatePrefix(CACHE_PREFIX.SALES);
 }

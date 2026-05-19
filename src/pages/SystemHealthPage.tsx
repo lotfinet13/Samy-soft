@@ -33,6 +33,12 @@ type IntegrityReport = {
   findings: IntegrityFinding[];
 };
 
+type StartupDiag = {
+  ok: boolean;
+  migrations: { ok: boolean; pendingCount: number; pendingNames: string[] };
+  bootstrapSchema: { driftDetected: boolean; detail?: string };
+};
+
 export function SystemHealthPage() {
   const { can } = usePermissions();
   const toast = useToastStore((t) => t.push);
@@ -43,6 +49,7 @@ export function SystemHealthPage() {
   const [scan, setScan] = useState<IntegrityReport | null>(null);
   const [scanBusy, setScanBusy] = useState(false);
   const [maintBusy, setMaintBusy] = useState(false);
+  const [startupDiag, setStartupDiag] = useState<StartupDiag | null>(null);
 
   useEffect(() => {
     void samyInvoke<WorkstationInfoDTO>(IPC_CHANNELS.APP_WORKSTATION_INFO).then(setWorkstation).catch(() => setWorkstation(null));
@@ -90,6 +97,13 @@ export function SystemHealthPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [can]);
 
+  useEffect(() => {
+    if (!can(PERMISSIONS.SETTINGS_READ)) return;
+    void samyInvoke<StartupDiag>(IPC_CHANNELS.SYSTEM_STARTUP_DIAGNOSTICS)
+      .then(setStartupDiag)
+      .catch(() => setStartupDiag(null));
+  }, [can]);
+
   async function runScan(): Promise<void> {
     if (!can(PERMISSIONS.SETTINGS_READ)) return;
     setScanBusy(true);
@@ -110,6 +124,8 @@ export function SystemHealthPage() {
     { label: "Connexion SQLite", ok: dbOk === true },
     { label: "PRAGMA intégrité", ok: maint?.integrityOk === true },
     { label: "Clés étrangères", ok: (maint?.foreignKeyIssues?.length ?? 0) === 0 },
+    { label: "Migrations à jour", ok: startupDiag ? startupDiag.migrations.ok : null as boolean | null },
+    { label: "Bootstrap SQL aligné", ok: startupDiag ? !startupDiag.bootstrapSchema.driftDetected : null },
     { label: "Sauvegarde récente", ok: backup ? !backup.warningStale : false },
     { label: "Scan métier", ok: scan ? scan.ok : null as boolean | null },
   ];

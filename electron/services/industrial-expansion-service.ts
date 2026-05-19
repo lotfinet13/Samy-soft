@@ -1,12 +1,12 @@
 import {
   BatchStatus,
+  Decimal,
   MachineStatus,
   MaintenanceScheduleStatus,
   MaterialKind,
   type MachineMaintenanceSchedule,
   type PrismaClient,
-} from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
+} from "../prisma-client.js";
 
 import { decimalToString, getCurrentQty, parseDecimal } from "./inventory-service.js";
 

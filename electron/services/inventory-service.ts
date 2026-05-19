@@ -1,36 +1,22 @@
 import {
+  Decimal,
   InventoryMovementKind,
   InventoryUnit,
   MaterialKind,
-  Prisma,
   PrismaClient,
-} from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
+  type Prisma,
+} from "../prisma-client.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
-export function decimalToString(value: unknown): string {
-  try {
-    if (value == null || value === "") return "0";
-    if (value instanceof Decimal) {
-      return value.toFixed(6).replace(/\.?0+$/, "");
-    }
-    if (typeof value === "object" && value !== null && "d" in value) {
-      return new Decimal(value as Decimal).toFixed(6).replace(/\.?0+$/, "");
-    }
-    return new Decimal(value as string | number).toFixed(6).replace(/\.?0+$/, "");
-  } catch {
-    return "0";
-  }
-}
+import { assertNonNegativeQtyAfter, computeNextWeightedUnitCost } from "./inventory-costing.js";
 
-export function parseDecimal(raw: string | number): Decimal {
-  try {
-    return new Decimal(String(raw));
-  } catch {
-    throw new Error("Montant décimal invalide.");
-  }
-}
+export {
+  assertNonNegativeQtyAfter,
+  computeNextWeightedUnitCost,
+  decimalToString,
+  parseDecimal,
+} from "./inventory-costing.js";
 
 export async function getCurrentQty(
   prisma: DbClient,
@@ -47,25 +33,6 @@ export async function getCurrentQty(
 
   const sum = agg._sum.qtySigned;
   return sum ?? new Decimal(0);
-}
-
-function assertNonNegativeQtyAfter(after: Decimal): void {
-  if (after.lt(0)) {
-    throw new Error("Stock négatif interdit après mouvement.");
-  }
-}
-
-function weightedAverageCost(opts: {
-  beforeQty: Decimal;
-  beforeCost: Decimal;
-  incomingQty: Decimal;
-  incomingPrice: Decimal;
-}): Decimal {
-  const { beforeQty, beforeCost, incomingQty, incomingPrice } = opts;
-  const numerator = beforeQty.mul(beforeCost).add(incomingQty.mul(incomingPrice));
-  const denom = beforeQty.add(incomingQty);
-  if (denom.eq(0)) return incomingPrice;
-  return numerator.div(denom);
 }
 
 export async function postSignedMovement(opts: {
@@ -101,20 +68,6 @@ export async function postSignedMovement(opts: {
       occurredAt: opts.occurredAt ?? new Date(),
       createdById: opts.userId ?? null,
     },
-  });
-}
-
-export function computeNextWeightedUnitCost(opts: {
-  stockBeforeInbound: Decimal;
-  currentCostUnit: Decimal;
-  qtyIn: Decimal;
-  unitPrice: Decimal;
-}): Decimal {
-  return weightedAverageCost({
-    beforeQty: opts.stockBeforeInbound,
-    beforeCost: opts.currentCostUnit,
-    incomingQty: opts.qtyIn,
-    incomingPrice: opts.unitPrice,
   });
 }
 

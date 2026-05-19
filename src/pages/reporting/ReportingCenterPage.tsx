@@ -4,7 +4,9 @@ import { reportingPresetUpsertSchema } from "@shared/schemas/reporting";
 import { FileSpreadsheet, FileText, Receipt, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { AsyncStatePanel } from "@/components/system/AsyncStatePanel";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useAsyncLoad } from "@/hooks/useAsyncLoad";
 import { usePermissions } from "@/hooks/usePermissions";
 import { downloadBase64Blob } from "@/lib/binary-download";
 import { samyInvoke } from "@/lib/samy";
@@ -42,11 +44,8 @@ export function ReportingCenterPage() {
 
   const [from, setFrom] = useState(() => monthIsoRange().from.slice(0, 10));
   const [to, setTo] = useState(() => monthIsoRange().to.slice(0, 10));
-  const [summary, setSummary] = useState<CenterSummaryDTO | null>(null);
-
   const [presets, setPresets] = useState<SavedPresetDTO[]>([]);
   const [presetTitle, setPresetTitle] = useState("Ma période");
-  const [loadError, setLoadError] = useState<string | null>(null);
 
   const rangeIso = useCallback(
     () => ({
@@ -62,21 +61,16 @@ export function ReportingCenterPage() {
     setPresets(rows);
   }, [can]);
 
-  const refreshSummary = useCallback(async (): Promise<void> => {
-    if (!can(PERMISSIONS.REPORTS_READ)) return;
-    setLoadError(null);
-    try {
-      const data = await samyInvoke<CenterSummaryDTO>(IPC_CHANNELS.REPORTS_CENTER_SUMMARY, rangeIso());
-      setSummary(data);
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Erreur de chargement du centre.");
-      setSummary(null);
-    }
-  }, [can, rangeIso]);
-
-  useEffect(() => {
-    void refreshSummary();
-  }, [refreshSummary]);
+  const {
+    data: summary,
+    loading: summaryLoading,
+    error: summaryError,
+    reload: refreshSummary,
+  } = useAsyncLoad(
+    () => samyInvoke<CenterSummaryDTO>(IPC_CHANNELS.REPORTS_CENTER_SUMMARY, rangeIso()),
+    [from, to, can],
+    { immediate: can(PERMISSIONS.REPORTS_READ) },
+  );
 
   useEffect(() => {
     void refreshPresets();
@@ -170,8 +164,6 @@ export function ReportingCenterPage() {
         <p className="text-sm text-danger">Permission reports.read requise.</p>
       ) : null}
 
-      {loadError ? <p className="text-sm text-danger">{loadError}</p> : null}
-
       <section className="erp-panel flex flex-wrap items-end gap-3 p-4 text-[13px]">
         <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase text-foreground-muted">
           Du
@@ -186,6 +178,12 @@ export function ReportingCenterPage() {
         </button>
       </section>
 
+      <AsyncStatePanel
+        loading={summaryLoading}
+        error={summaryError}
+        onRetry={() => void refreshSummary()}
+        loadingLabel="Chargement des agrégats transversaux…"
+      >
       {summary ? (
         <section className="grid gap-3 md:grid-cols-5">
           <KpiChip label="CA facturations (jour)" value={`${summary.kpi.salesValidatedCount}`} subtitle="documents validés" />
@@ -206,8 +204,9 @@ export function ReportingCenterPage() {
           <KpiChip label="Lots actifs" value={`${summary.navHints.activeBatches}`} subtitle="fab en cours ou planifiés" />
         </section>
       ) : (
-        <p className="text-[12px] text-foreground-muted">Chargement des agrégats transversaux…</p>
+        <p className="text-[12px] text-foreground-muted">Aucun agrégat pour cette période.</p>
       )}
+      </AsyncStatePanel>
 
       <section className="grid gap-3 lg:grid-cols-2">
         <div className="erp-panel space-y-3 p-4">

@@ -1,8 +1,10 @@
 import { IPC_CHANNELS } from "@shared/ipc-channels";
 import { PERMISSIONS } from "@shared/permissions";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
+import { AsyncStatePanel } from "@/components/system/AsyncStatePanel";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useAsyncLoad } from "@/hooks/useAsyncLoad";
 import { usePermissions } from "@/hooks/usePermissions";
 import { samyInvoke } from "@/lib/samy";
 
@@ -21,25 +23,17 @@ export function HrWorkersPage() {
   const { can } = usePermissions();
   const [q, setQ] = useState("");
   const [deptFilter, setDeptFilter] = useState("");
-  const [rows, setRows] = useState<WorkerRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await samyInvoke<{ items: WorkerRow[]; total: number }>(IPC_CHANNELS.HR_WORKER_LIST, {
-          q: q.trim() || undefined,
-          department: deptFilter.trim() || undefined,
-          take: 250,
-        });
-        setRows(res.items);
-        setTotal(res.total);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-  }, [q, deptFilter]);
+  const { data, loading, error, reload } = useAsyncLoad(
+    () =>
+      samyInvoke<{ items: WorkerRow[]; total: number }>(IPC_CHANNELS.HR_WORKER_LIST, {
+        q: q.trim() || undefined,
+        department: deptFilter.trim() || undefined,
+        take: 250,
+      }),
+    [q, deptFilter],
+  );
+  const rows = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   if (!can(PERMISSIONS.HR_READ)) return <Navigate to="/" replace />;
 
@@ -72,10 +66,7 @@ export function HrWorkersPage() {
         ) : null}
       </div>
 
-      {error ? (
-        <p className="rounded border border-danger/40 bg-danger/10 px-2 py-1.5 text-[12px] text-danger">{error}</p>
-      ) : null}
-
+      <AsyncStatePanel loading={loading} error={error} onRetry={() => void reload()} loadingLabel="Chargement des effectifs…">
       <div className="overflow-x-auto rounded-[var(--erp-radius-panel)] border border-border bg-surface">
         <table className="w-full min-w-[720px] border-collapse text-left text-[12px]">
           <thead>
@@ -110,6 +101,7 @@ export function HrWorkersPage() {
           </tbody>
         </table>
       </div>
+      </AsyncStatePanel>
     </div>
   );
 }

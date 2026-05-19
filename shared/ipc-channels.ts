@@ -8,6 +8,8 @@ export const IPC_CHANNELS = {
   AUTH_LOGIN: "auth:login",
   AUTH_LOGOUT: "auth:logout",
   AUTH_SESSION: "auth:session",
+  BOOTSTRAP_STATUS: "bootstrap:status",
+  BOOTSTRAP_CREATE_ADMIN: "bootstrap:create-admin",
 
   SETTINGS_GET_ALL: "settings:get-all",
   SETTINGS_UPSERT: "settings:upsert",
@@ -36,6 +38,8 @@ export const IPC_CHANNELS = {
   SYSTEM_DEPLOYMENT_CERT_RUN: "system:deployment-cert:run",
   SYSTEM_DIAGNOSTICS_EXPORT: "system:diagnostics:export",
   SYSTEM_SMOKE_MAIN_SELFTEST: "system:smoke:main-selftest",
+  /** Diagnostics démarrage (schéma, intégrité légère) — lecture seule. */
+  SYSTEM_STARTUP_DIAGNOSTICS: "system:startup:diagnostics",
 
   APP_UPDATES_PROBE: "app:updates-probe",
 

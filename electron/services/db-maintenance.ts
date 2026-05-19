@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "../prisma-client.js";
 import { getDatabaseFilePath } from "../database.js";
 
 export async function prismaIntegritySummary(prisma: PrismaClient): Promise<{

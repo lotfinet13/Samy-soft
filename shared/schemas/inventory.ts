@@ -38,6 +38,10 @@ export const inventorySearchSchema = pagingSchema.extend({
   supplierId: z.string().uuid().optional(),
 });
 
+export const supplierListSchema = pagingSchema.extend({
+  q: z.string().trim().max(160).optional().default(""),
+});
+
 export const rawMaterialUpsertSchema = z.object({
   id: z.string().uuid().optional(),
   sku: z.string().trim().min(1).max(64),

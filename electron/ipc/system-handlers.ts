@@ -39,6 +39,7 @@ import {
 } from "../services/diagnostic-bundle-service.js";
 import { runDeploymentCertification } from "../services/deployment-cert-service.js";
 import { getQaOverview, recordIntegrityScanResult } from "../services/qa-metrics-service.js";
+import { runStartupDiagnostics } from "../services/startup-diagnostics-service.js";
 
 function sessionGate(user: NonNullable<Awaited<ReturnType<typeof resolveSessionUser>>>) {
   return {
@@ -346,6 +347,11 @@ export function registerSystemHandlers(): void {
       metadata: { absolutePathHint: "(userData diagnostics folder)" },
     });
     return created;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_STARTUP_DIAGNOSTICS, async () => {
+    const prisma = getPrisma();
+    return runStartupDiagnostics(prisma);
   });
 
   ipcMain.handle(IPC_CHANNELS.SYSTEM_SMOKE_MAIN_SELFTEST, async () => {

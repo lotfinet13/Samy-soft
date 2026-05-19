@@ -17,10 +17,20 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
+    "db:bootstrap-schema": "node --import tsx scripts/generate-bootstrap-schema.ts",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "verify:desktop": "npm run lint && npm run build && npx prisma validate",
+    "verify:desktop": "tsx scripts/verify-desktop.ts",
+    "e2e:smoke": "npm run e2e:ensure-db && cross-env SAMY_E2E=1 SAMY_SKIP_DEVTOOLS=1 SAMY_E2E_DATABASE_PATH=.data/e2e/samye2e.sqlite playwright test e2e/critical-flows.spec.ts",
+    "e2e:modals": "npm run e2e:ensure-db && cross-env SAMY_E2E=1 SAMY_SKIP_DEVTOOLS=1 SAMY_E2E_DATABASE_PATH=.data/e2e/samye2e.sqlite playwright test e2e/modal-workflows.spec.ts",
+    "e2e:restart": "npm run e2e:ensure-db && cross-env SAMY_E2E=1 SAMY_SKIP_DEVTOOLS=1 SAMY_E2E_DATABASE_PATH=.data/e2e/samye2e.sqlite playwright test e2e/restart-persistence.spec.ts",
+    "verify:bootstrap-schema": "tsx scripts/validate-bootstrap-schema.ts",
+    "verify:schema-checksum": "tsx scripts/verify-schema-checksum.ts",
+    "verify:migrate-deploy": "tsx scripts/verify-migrate-deploy.ts",
+    "db:backup-before-migrate": "tsx scripts/backup-before-migrate.ts",
+    "e2e:stability": "tsx scripts/e2e-stability-run.ts",
     "test:unit": "vitest run",
+    "test:unit:coverage": "vitest run --coverage",
     "playwright:install": "playwright install",
     "e2e:db:push": "cross-env DATABASE_URL=file:../.data/e2e/samye2e.sqlite prisma db push --accept-data-loss --skip-generate",
     "e2e:seed": "cross-env DATABASE_URL=file:../.data/e2e/samye2e.sqlite SAMY_SEED_SKIP_WIZARD=1 SAMY_E2E=1 SAMY_SEED_ADMIN_PASSWORD=E2E_Admin_Stable_12! prisma db seed",
@@ -30,7 +40,11 @@
     "e2e": "npm run e2e:ensure-db && cross-env SAMY_E2E=1 SAMY_SKIP_DEVTOOLS=1 SAMY_E2E_DATABASE_PATH=.data/e2e/samye2e.sqlite playwright test",
     "qa:certs-installer": "tsx scripts/check-installer-artifacts.ts",
     "qa:perf-sample": "tsx scripts/performance-sample.ts",
-    "dist:win": "npm run build && electron-builder --win"
+    "dist:win": "npm run build && electron-builder --win",
+    "clean": "node scripts/clean-project.mjs all",
+    "clean:cache": "node scripts/clean-project.mjs cache",
+    "clean:build": "node scripts/clean-project.mjs build",
+    "clean:installers": "node scripts/clean-project.mjs installers"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -55,18 +69,21 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
+    "@testing-library/react": "^16.3.2",
     "@types/adm-zip": "^0.5.8",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.10.5",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^4.1.6",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
     "electron": "^34.0.0",
     "electron-builder": "^26.8.1",
     "esbuild": "^0.25.0",
+    "happy-dom": "^20.9.0",
     "postcss": "^8.4.49",
     "prisma": "^6.3.1",
     "tailwindcss": "^3.4.17",
@@ -89,15 +106,28 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "package.json"
+      "package.json",
+      {
+        "from": "node_modules/.prisma",
+        "to": "node_modules/.prisma"
+      },
+      {
+        "from": "node_modules/@prisma",
+        "to": "node_modules/@prisma"
+      }
     ],
     "asar": true,
     "asarUnpack": [
-      "**/node_modules/@prisma/client/**/*",
-      "**/node_modules/.prisma/**/*"
+      "**/.prisma/**",
+      "**/@prisma/**"
+    ],
+    "extraResources": [
+      {
+        "from": "prisma/bootstrap-schema.sql",
+        "to": "prisma/bootstrap-schema.sql"
+      }
     ],
     "win": {
-      "publisherName": "SAMY SOFT",
       "requestedExecutionLevel": "asInvoker",
       "target": [
         {

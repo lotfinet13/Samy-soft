@@ -1,5 +1,4 @@
-import { InventoryMovementKind, InvoiceStatus, PrismaClient } from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
+import { Decimal, InventoryMovementKind, InvoiceStatus, type PrismaClient } from "../../prisma-client.js";
 
 import { enumerateDatesInclusive, normalizeWorkDateUtc } from "../payroll-engine.js";
 import { decimalToString, parseDecimal } from "../inventory-service.js";

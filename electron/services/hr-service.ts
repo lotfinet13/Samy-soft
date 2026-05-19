@@ -1,10 +1,10 @@
 import {
   AdvanceRepaymentStatus,
+  Decimal,
   PayrollCycleStatus,
   PayrollStatus,
   type PrismaClient,
-} from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
+} from "../prisma-client.js";
 
 import { calculatePayrollForWorker } from "./payroll-engine.js";
 import { decimalToString, parseDecimal } from "./inventory-service.js";

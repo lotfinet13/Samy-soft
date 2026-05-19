@@ -1,31 +1,44 @@
 # Dependencies
 node_modules/
 
-# Build outputs
+# Build outputs (regenerate: npm run build / dist:win)
 dist/
 dist-electron/
 release/
+release-*/
 out/
 build/
 *.asar
+
+# Installers / OS packages (regenerate via electron-builder)
 *.exe
 *.msi
 *.dmg
 *.AppImage
 *.deb
 *.rpm
+
+# Archives produced locally (keep release zips out of git)
 *.zip
 *.7z
 
+# Tooling caches
+.vite/
+.turbo/
+.cache/
+.eslintcache
+node_modules/.cache/
+
 # Test and coverage artifacts
 coverage/
+.nyc_output/
 test-results/
 playwright-report/
+playwright-results.json
 blob-report/
 e2e/artifacts/
-.nyc_output/
 
-# Local databases, backups, and generated runtime data
+# Local databases, backups, and runtime data
 .data/
 *.sqlite
 *.sqlite3
@@ -47,13 +60,16 @@ yarn-error.log*
 pnpm-debug.log*
 diagnostic-bundles/
 
-# Local secrets and environment overrides
+# Cleanup quarantine (local only; review then delete manually)
+_quarantine/
+
+# Local secrets
 .env
 .env.*
 !.env.example
 !.env.template
 
-# OS, editor, and temporary files
+# OS and editor
 .DS_Store
 Thumbs.db
 Desktop.ini
@@ -62,29 +78,14 @@ Desktop.ini
 *.swp
 *.swo
 ~$*
-.cache/
-.vite/
-.eslintcache
 
-# Electron / Prisma generated local caches
+# Prisma local DB files (schema + migrations stay tracked)
 prisma/*.db
 prisma/*.sqlite
 prisma/dev.db*
 
-# Keep source assets, docs, Prisma schema, and migrations tracked.
-!prisma/migrations/
-!prisma/migrations/**/*
+# Explicit keeps (documentation)
 !docs/
 !docs/**/*
-node_modules
-dist
-dist-electron
-.data
-.env.local
-*.log
-.DS_Store
-playwright-report
-playwright-results.json
-test-results
-e2e/artifacts
-release
+!prisma/migrations/
+!prisma/migrations/**/*

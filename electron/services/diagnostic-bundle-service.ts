@@ -4,7 +4,7 @@ import path from "node:path";
 import { mkdir, readFile } from "node:fs/promises";
 import { app } from "electron";
 import AdmZip from "adm-zip";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "../prisma-client.js";
 import { sqliteFileStats } from "./db-maintenance.js";
 import { getBackupHealth } from "./backup-service.js";
 

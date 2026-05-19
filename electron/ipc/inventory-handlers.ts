@@ -1,8 +1,7 @@
 import { ipcMain } from "electron";
-import { MaterialKind } from "@prisma/client";
+import { MaterialKind } from "../prisma-client.js";
 
-import type { Prisma as PrismaNS } from "@prisma/client";
-import { InventoryMovementKind } from "@prisma/client";
+import { InventoryMovementKind, Prisma } from "../prisma-client.js";
 import { IPC_CHANNELS } from "../../shared/ipc-channels.js";
 import {
   inboundMovementSchema,
@@ -10,6 +9,7 @@ import {
   manualAdjustmentSchema,
   outboundMovementSchema,
   pagingSchema,
+  supplierListSchema,
   packagingUpsertSchema,
   purchaseCreateSchema,
   rawMaterialUpsertSchema,
@@ -19,6 +19,13 @@ import { PERMISSIONS } from "../../shared/permissions.js";
 import { getPrisma } from "../database.js";
 import { logActivity } from "../services/activity-service.js";
 import { resolveSessionUser, sessionHasPermission } from "../services/auth-service.js";
+import {
+  toInventoryMaterialListItemDto,
+  toPurchaseEntryListItemDto,
+  toSupplierDetailDto,
+  toSupplierListItemDto,
+} from "./dto/inventory-dto.js";
+import { toIpcPayload } from "../utils/serialize-for-ipc.js";
 import {
   createPurchaseEntryLedger,
   decimalToString,
@@ -42,38 +49,60 @@ function enforcePermission(user: SessionUserResolved, permission: string | reado
   }
 }
 
-async function hydrateRawBalances<T extends { id: string; minimumStockQty: unknown }>(
-  rows: T[],
-): Promise<Array<T & { currentQtySerialized: string; isLowStock: boolean }>> {
+async function hydrateRawBalances(
+  rows: Array<Parameters<typeof toInventoryMaterialListItemDto>[0]>,
+) {
   const prisma = getPrisma();
   return Promise.all(
     rows.map(async (row) => {
       const currentQty = await getCurrentQty(prisma, MaterialKind.RAW, row.id);
       const minimum = parseDecimal(decimalToString(row.minimumStockQty));
-      return {
-        ...row,
+      return toInventoryMaterialListItemDto(row, {
         currentQtySerialized: decimalToString(currentQty),
         isLowStock: currentQty.lessThan(minimum),
-      };
+      });
     }),
   );
 }
 
-async function hydratePackBalances<T extends { id: string; minimumStockQty: unknown }>(
-  rows: T[],
-): Promise<Array<T & { currentQtySerialized: string; isLowStock: boolean }>> {
+async function hydratePackBalances(
+  rows: Array<Parameters<typeof toInventoryMaterialListItemDto>[0]>,
+) {
   const prisma = getPrisma();
   return Promise.all(
     rows.map(async (row) => {
       const currentQty = await getCurrentQty(prisma, MaterialKind.PACKAGING, row.id);
       const minimum = parseDecimal(decimalToString(row.minimumStockQty));
-      return {
-        ...row,
+      return toInventoryMaterialListItemDto(row, {
         currentQtySerialized: decimalToString(currentQty),
         isLowStock: currentQty.lessThan(minimum),
-      };
+      });
     }),
   );
+}
+
+/** SQLite `contains` is case-sensitive; emit OR variants so `ing` matches `ING002`. */
+function searchTermCaseVariants(term: string): string[] {
+  const trimmed = term.trim();
+  if (!trimmed) return [];
+  const lower = trimmed.toLowerCase();
+  const upper = trimmed.toUpperCase();
+  const titleCased =
+    lower.length > 0 ? `${lower.charAt(0).toUpperCase()}${lower.slice(1)}` : lower;
+  return [...new Set([trimmed, lower, upper, titleCased])];
+}
+
+function buildTextSearchOrClause(term: string): { OR: Prisma.RawMaterialWhereInput[] } {
+  const variants = searchTermCaseVariants(term);
+  const or: Prisma.RawMaterialWhereInput[] = [];
+  for (const variant of variants) {
+    or.push(
+      { sku: { contains: variant } },
+      { labelFr: { contains: variant } },
+      { category: { contains: variant } },
+    );
+  }
+  return { OR: or };
 }
 
 function buildFlexibleSearchWhere(
@@ -100,12 +129,7 @@ function buildFlexibleSearchWhere(
 
   const term = (opts.q ?? "").trim();
   if (term.length > 0) {
-    clauses.push({
-      OR: [
-        { sku: { contains: term } },
-        { labelFr: { contains: term } },
-      ],
-    });
+    clauses.push(buildTextSearchOrClause(term));
   }
 
   if (table === "raw") {
@@ -113,23 +137,6 @@ function buildFlexibleSearchWhere(
   }
 
   return clauses.length ? { AND: clauses } : {};
-}
-
-function serializePurchaseLine(line: {
-  id: string;
-  materialKind: string;
-  qty: unknown;
-  unitPrice: unknown;
-  lineTotal: unknown;
-  expiresAt: Date | null;
-}) {
-  return {
-    ...line,
-    qtySerialized: decimalToString(line.qty),
-    unitPriceSerialized: decimalToString(line.unitPrice),
-    lineTotalSerialized: decimalToString(line.lineTotal),
-    expiresAt: line.expiresAt ? line.expiresAt.toISOString() : null,
-  };
 }
 
 function serializeMovementScalars(movement: {
@@ -186,13 +193,11 @@ export function registerInventoryHandlers(): void {
     ]);
 
     let lowStock = 0;
-    for (const row of await hydrateRawBalances(rawMaterials
-)) {
+    for (const row of await hydrateRawBalances(rawMaterials)) {
       if (row.isLowStock) lowStock++;
     }
 
-    for (const row of await hydratePackBalances(packaging
-)) {
+    for (const row of await hydratePackBalances(packaging)) {
       if (row.isLowStock) lowStock++;
     }
 
@@ -206,7 +211,7 @@ export function registerInventoryHandlers(): void {
       },
     });
 
-    return { lowStock, expiringLines: expiring };
+    return toIpcPayload({ lowStock, expiringLines: expiring }, IPC_CHANNELS.INVENTORY_NAV_COUNTS);
   });
 
   ipcMain.handle(IPC_CHANNELS.INVENTORY_RAW_LIST, async (_evt, payload: unknown) => {
@@ -220,7 +225,7 @@ export function registerInventoryHandlers(): void {
       supplierId: filters.supplierId,
       category: filters.category,
       q: filters.q,
-    }) as PrismaNS.RawMaterialWhereInput;
+    }) as Prisma.RawMaterialWhereInput;
 
     const [total, rows] = await prisma.$transaction([
       prisma.rawMaterial.count({ where }),
@@ -233,10 +238,14 @@ export function registerInventoryHandlers(): void {
       }),
     ]);
 
-    const hydrated = await hydrateRawBalances(rows
-);
+    const hydrated = await hydrateRawBalances(rows);
 
-    return { total, page: filters.page, pageSize: filters.pageSize, items: hydrated };
+    return {
+      total,
+      page: filters.page,
+      pageSize: filters.pageSize,
+      items: hydrated,
+    };
   });
 
   ipcMain.handle(IPC_CHANNELS.INVENTORY_RAW_UPSERT, async (_evt, payload: unknown) => {
@@ -297,7 +306,7 @@ export function registerInventoryHandlers(): void {
       supplierId: filters.supplierId,
       category: filters.category,
       q: filters.q,
-    }) as PrismaNS.PackagingMaterialWhereInput;
+    }) as Prisma.PackagingMaterialWhereInput;
 
     const [total, rows] = await prisma.$transaction([
       prisma.packagingMaterial.count({ where }),
@@ -310,9 +319,11 @@ export function registerInventoryHandlers(): void {
       }),
     ]);
 
-    const hydrated = await hydratePackBalances(rows
-);
-    return { total, page: filters.page, pageSize: filters.pageSize, items: hydrated };
+    const hydrated = await hydratePackBalances(rows);
+    return toIpcPayload(
+      { total, page: filters.page, pageSize: filters.pageSize, items: hydrated },
+      IPC_CHANNELS.INVENTORY_PACKAGING_LIST,
+    );
   });
 
   ipcMain.handle(IPC_CHANNELS.INVENTORY_PACKAGING_UPSERT, async (_evt, payload: unknown) => {
@@ -365,10 +376,13 @@ export function registerInventoryHandlers(): void {
     const prisma = getPrisma();
     const user = await requireAuthUser();
     enforcePermission(user, PERMISSIONS.INVENTORY_READ);
-    const paging = pagingSchema.parse(payload ?? {});
+    const paging = supplierListSchema.parse(payload ?? {});
+    const q = paging.q.trim();
+    const where = q.length > 0 ? { name: { contains: q } } : {};
     const [total, suppliers] = await prisma.$transaction([
-      prisma.supplier.count(),
+      prisma.supplier.count({ where }),
       prisma.supplier.findMany({
+        where,
         skip: (paging.page - 1) * paging.pageSize,
         take: paging.pageSize,
         orderBy: { name: "asc" },
@@ -384,17 +398,15 @@ export function registerInventoryHandlers(): void {
       }),
     ]);
 
-    return {
-      items: suppliers.map((supplier) => ({
-        ...supplier,
-        linkedRaw: supplier._count.rawMaterials,
-        linkedPackaging: supplier._count.packagingMaterials,
-        purchaseCount: supplier._count.purchases,
-      })),
-      total,
-      page: paging.page,
-      pageSize: paging.pageSize,
-    };
+    return toIpcPayload(
+      {
+        items: suppliers.map(toSupplierListItemDto),
+        total,
+        page: paging.page,
+        pageSize: paging.pageSize,
+      },
+      IPC_CHANNELS.INVENTORY_SUPPLIER_LIST,
+    );
   });
 
   ipcMain.handle(IPC_CHANNELS.INVENTORY_SUPPLIER_UPSERT, async (_evt, payload: unknown) => {
@@ -441,13 +453,15 @@ export function registerInventoryHandlers(): void {
         packagingMaterials: { take: 20 },
         _count: {
           select: {
+            rawMaterials: true,
+            packagingMaterials: true,
             purchases: true,
           },
         },
       },
     });
 
-    return refreshed;
+    return toSupplierListItemDto(refreshed);
   });
 
   ipcMain.handle(IPC_CHANNELS.INVENTORY_SUPPLIER_GET, async (_evt, supplierId?: string) => {
@@ -458,15 +472,16 @@ export function registerInventoryHandlers(): void {
     const id = String(supplierId ?? "").trim();
     if (!id) throw new Error("Fournisseur introuvable.");
 
-    return prisma.supplier.findUniqueOrThrow({
+    const supplier = await prisma.supplier.findUniqueOrThrow({
       where: { id },
       include: {
         purchases: { orderBy: { purchaseDate: "desc" }, take: 40 },
         rawMaterials: { take: 100 },
         packagingMaterials: { take: 100 },
-        _count: { select: { purchases: true } },
+        _count: { select: { rawMaterials: true, packagingMaterials: true, purchases: true } },
       },
     });
+    return toSupplierDetailDto(supplier);
   });
 
   ipcMain.handle(IPC_CHANNELS.INVENTORY_PURCHASE_LIST, async (_evt, payload: unknown) => {
@@ -489,16 +504,15 @@ export function registerInventoryHandlers(): void {
       }),
     ]);
 
-    return {
-      total,
-      page: paging.page,
-      pageSize: paging.pageSize,
-      items: entries.map((entry) => ({
-        ...entry,
-        totalAmountSerialized: decimalToString(entry.totalAmount),
-        lines: entry.lines.map(serializePurchaseLine),
-      })),
-    };
+    return toIpcPayload(
+      {
+        total,
+        page: paging.page,
+        pageSize: paging.pageSize,
+        items: entries.map(toPurchaseEntryListItemDto),
+      },
+      IPC_CHANNELS.INVENTORY_PURCHASE_LIST,
+    );
   });
 
   ipcMain.handle(IPC_CHANNELS.INVENTORY_PURCHASE_CREATE, async (_evt, payload: unknown) => {
@@ -576,11 +590,7 @@ export function registerInventoryHandlers(): void {
       include: { supplier: true, lines: true },
     });
 
-    return {
-      ...entry,
-      totalAmountSerialized: decimalToString(entry.totalAmount),
-      lines: entry.lines.map(serializePurchaseLine),
-    };
+    return toIpcPayload(toPurchaseEntryListItemDto(entry), IPC_CHANNELS.INVENTORY_PURCHASE_CREATE);
   });
 
   ipcMain.handle(IPC_CHANNELS.INVENTORY_MOVEMENT_LIST, async (_evt, payload: unknown) => {
@@ -604,23 +614,26 @@ export function registerInventoryHandlers(): void {
       }),
     ]);
 
-    return {
-      total,
-      page: paging.page,
-      pageSize: paging.pageSize,
-      items: rows.map((movement) => ({
-        ...serializeMovementScalars(movement),
-        materialLabel:
-          movement.rawMaterial?.labelFr ??
-          movement.packagingMaterial?.labelFr ??
-          "—",
-        materialSku: movement.rawMaterial?.sku ?? movement.packagingMaterial?.sku ?? "—",
-        actor:
-          movement.createdBy?.displayName ??
-          movement.createdBy?.username ??
-          "—",
-      })),
-    };
+    return toIpcPayload(
+      {
+        total,
+        page: paging.page,
+        pageSize: paging.pageSize,
+        items: rows.map((movement) => ({
+          ...serializeMovementScalars(movement),
+          materialLabel:
+            movement.rawMaterial?.labelFr ??
+            movement.packagingMaterial?.labelFr ??
+            "—",
+          materialSku: movement.rawMaterial?.sku ?? movement.packagingMaterial?.sku ?? "—",
+          actor:
+            movement.createdBy?.displayName ??
+            movement.createdBy?.username ??
+            "—",
+        })),
+      },
+      IPC_CHANNELS.INVENTORY_MOVEMENT_LIST,
+    );
   });
 
   ipcMain.handle(IPC_CHANNELS.INVENTORY_MOVEMENT_OUTBOUND, async (_evt, payload: unknown) => {
@@ -734,26 +747,22 @@ export function registerInventoryHandlers(): void {
       }),
     ]);
 
-    const hydratedRaw = await hydrateRawBalances(rawItems
-);
-    const hydratedPk = await hydratePackBalances(pkItems
-);
+    const hydratedRaw = await hydrateRawBalances(rawItems);
+    const hydratedPk = await hydratePackBalances(pkItems);
 
     let totalValueSerialized = decimalToString(parseDecimal("0"));
     hydratedRaw.forEach((row) => {
       const qty = parseDecimal(row.currentQtySerialized);
-      const unitCost = parseDecimal(decimalToString((row as { costPriceUnit: unknown }).costPriceUnit));
+      const unitCost = parseDecimal(row.costPriceUnit);
       totalValueSerialized = decimalToString(parseDecimal(totalValueSerialized).add(qty.mul(unitCost)));
     });
     hydratedPk.forEach((row) => {
       const qty = parseDecimal(row.currentQtySerialized);
-      const unitCost = parseDecimal(decimalToString((row as { costPriceUnit: unknown }).costPriceUnit));
+      const unitCost = parseDecimal(row.costPriceUnit);
       totalValueSerialized = decimalToString(parseDecimal(totalValueSerialized).add(qty.mul(unitCost)));
     });
 
-    const lowCandidates = [...hydratedRaw, ...hydratedPk]
-      .filter((row) => row.isLowStock)
-      .slice(0, 25);
+    const lowCandidates = [...hydratedRaw, ...hydratedPk].filter((row) => row.isLowStock).slice(0, 25);
 
     const soonBoundary = Date.now() + 1000 * 60 * 60 * 24 * 45;
     const expiring = await prisma.stockMovement.findMany({
@@ -787,23 +796,16 @@ export function registerInventoryHandlers(): void {
       _sum: { totalAmount: true },
     });
 
-    return {
+    const payload = {
       totals: {
         inventoryValueSerialized: totalValueSerialized,
         recordedPurchasesSerialized: decimalToString(purchaseTotals._sum.totalAmount ?? 0),
       },
       lowStock: lowCandidates.map((candidate) => ({
-        sku:
-          ("sku" in candidate ? candidate.sku : (candidate as { sku: string }).sku) ??
-          "",
-        label:
-          ("labelFr" in candidate
-            ? (candidate as { labelFr: string }).labelFr
-            : "") ?? "",
+        sku: candidate.sku,
+        label: candidate.labelFr,
         currentQtySerialized: candidate.currentQtySerialized,
-        thresholdSerialized: decimalToString(
-          (candidate as { minimumStockQty: unknown }).minimumStockQty ?? 0,
-        ),
+        thresholdSerialized: candidate.minimumStockQty,
       })),
       expiringSoon: expiring.map((movement) => ({
         ...serializeMovementScalars(movement),
@@ -830,6 +832,7 @@ export function registerInventoryHandlers(): void {
         purchases: supplier._count.purchases,
       })),
     };
+    return toIpcPayload(payload, IPC_CHANNELS.INVENTORY_DASHBOARD_SUMMARY);
   });
 
   ipcMain.handle(IPC_CHANNELS.INVENTORY_REPORT_VALUATION, async () => {
@@ -846,22 +849,20 @@ export function registerInventoryHandlers(): void {
       }),
     ]);
 
-    const hydratedRaw = await hydrateRawBalances(rawItems
-);
-    const hydratedPk = await hydratePackBalances(pkgItems
-);
+    const hydratedRaw = await hydrateRawBalances(rawItems);
+    const hydratedPk = await hydratePackBalances(pkgItems);
 
     const headers = ["Type", "SKU", "Désignation", "Unité", "Qté physique", "Coût unitaire", "Valeur"];
     const rows: Array<Array<string>> = [];
 
     for (const item of hydratedRaw) {
       const qty = parseDecimal(item.currentQtySerialized);
-      const cost = parseDecimal(decimalToString((item as { costPriceUnit: unknown }).costPriceUnit));
+      const cost = parseDecimal(item.costPriceUnit);
       rows.push([
         "Matière",
-        String((item as { sku: string }).sku),
-        String((item as { labelFr: string }).labelFr),
-        String((item as { unit: string }).unit),
+        item.sku,
+        item.labelFr,
+        item.unit,
         qty.toFixed(4),
         cost.toFixed(4),
         qty.mul(cost).toFixed(2),
@@ -870,12 +871,12 @@ export function registerInventoryHandlers(): void {
 
     for (const item of hydratedPk) {
       const qty = parseDecimal(item.currentQtySerialized);
-      const cost = parseDecimal(decimalToString((item as { costPriceUnit: unknown }).costPriceUnit));
+      const cost = parseDecimal(item.costPriceUnit);
       rows.push([
         "Emballage",
-        String((item as { sku: string }).sku),
-        String((item as { labelFr: string }).labelFr),
-        String((item as { unit: string }).unit),
+        item.sku,
+        item.labelFr,
+        item.unit,
         qty.toFixed(4),
         cost.toFixed(4),
         qty.mul(cost).toFixed(2),
@@ -977,10 +978,8 @@ export function registerInventoryHandlers(): void {
       prisma.packagingMaterial.findMany({ where: { isActive: true } }),
     ]);
 
-    const rawHydrated = await hydrateRawBalances(rawList
-);
-    const pkHydrated = await hydratePackBalances(pkList
-);
+    const rawHydrated = await hydrateRawBalances(rawList);
+    const pkHydrated = await hydratePackBalances(pkList);
 
     const headers = ["Type", "SKU", "Libellé", "Minimum", "Réel"];
 
@@ -990,9 +989,9 @@ export function registerInventoryHandlers(): void {
       .forEach((entry) =>
         data.push([
           "Matière primaire",
-          String((entry as { sku: string }).sku),
-          String((entry as { labelFr: string }).labelFr),
-          decimalToString((entry as { minimumStockQty: unknown }).minimumStockQty ?? 0),
+          entry.sku,
+          entry.labelFr,
+          entry.minimumStockQty,
           entry.currentQtySerialized,
         ]),
       );
@@ -1002,9 +1001,9 @@ export function registerInventoryHandlers(): void {
       .forEach((entry) =>
         data.push([
           "Emballage",
-          String((entry as { sku: string }).sku),
-          String((entry as { labelFr: string }).labelFr),
-          decimalToString((entry as { minimumStockQty: unknown }).minimumStockQty ?? 0),
+          entry.sku,
+          entry.labelFr,
+          entry.minimumStockQty,
           entry.currentQtySerialized,
         ]),
       );

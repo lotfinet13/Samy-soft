@@ -1,8 +1,9 @@
 import { IPC_CHANNELS } from "@shared/ipc-channels";
-import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { AsyncStatePanel } from "@/components/system/AsyncStatePanel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatCard } from "@/components/ui/StatCard";
+import { useAsyncLoad } from "@/hooks/useAsyncLoad";
 import { samyInvoke } from "@/lib/samy";
 
 type Summary = {
@@ -23,19 +24,16 @@ type Summary = {
 };
 
 export function InventoryDashboardPage() {
-  const [data, setData] = useState<Summary | null>(null);
-
-  useEffect(() => {
-    void (async () => {
-      const res = await samyInvoke<Summary>(IPC_CHANNELS.INVENTORY_DASHBOARD_SUMMARY);
-      setData(res);
-    })();
-  }, []);
+  const { data, loading, error, reload } = useAsyncLoad(
+    () => samyInvoke<Summary>(IPC_CHANNELS.INVENTORY_DASHBOARD_SUMMARY),
+    [],
+  );
 
   return (
     <div className="flex flex-col gap-5">
       <PageHeader title="Pilotage stocks" subtitle="Vue opérationnelle — valorisation agrégée, alertes locales, derniers mouvements." />
 
+      <AsyncStatePanel loading={loading} error={error} onRetry={() => void reload()}>
       <div className="grid gap-4 md:grid-cols-4">
         <StatCard label="Valorisation physique" value={data?.totals.inventoryValueSerialized ?? "…"} hint="Σ qté × coût moy." />
         <StatCard label="Achats cumulés" value={data?.totals.recordedPurchasesSerialized ?? "…"} hint="Somme bons entrée" />
@@ -114,6 +112,7 @@ export function InventoryDashboardPage() {
           <p className="text-[12px] text-foreground-muted">Aucun mouvement enregistré.</p>
         )}
       </InventoryPanel>
+      </AsyncStatePanel>
     </div>
   );
 }

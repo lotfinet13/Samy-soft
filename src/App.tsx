@@ -6,6 +6,7 @@ import { InventoryLayout } from "@/layouts/InventoryLayout";
 import { ProtectedRoute } from "@/layouts/ProtectedRoute";
 import { refreshSession } from "@/lib/bootstrap";
 import { LoginPage } from "@/pages/LoginPage";
+import { SetupPage } from "@/pages/SetupPage";
 import {
   DashboardPage,
   HrAdvancesPage,
@@ -71,6 +72,7 @@ export function App() {
       <AppErrorBoundary>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/setup" element={<SetupPage />} />
 
           <Route element={<ProtectedRoute />}>
             <Route element={<AppShell />}>

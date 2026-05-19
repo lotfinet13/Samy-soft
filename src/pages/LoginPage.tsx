@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { FormField } from "@/components/ui/FormField";
-import { refreshSession, refreshSettingsSilently } from "@/lib/bootstrap";
+import { refreshBootstrapStatus, refreshSession, refreshSettingsSilently } from "@/lib/bootstrap";
 import { cn } from "@/lib/cn";
 import { samyInvoke } from "@/lib/samy";
 import { loginSchema, type LoginFormValues } from "@/modules/auth/login-schema";
@@ -21,6 +21,7 @@ export function LoginPage() {
   const setHydrated = useAuthStore((state) => state.setHydrated);
   const hydrated = useAuthStore((state) => state.hydrated);
   const user = useAuthStore((state) => state.user);
+  const bootstrapRequired = useAuthStore((state) => state.bootstrapRequired);
   const [formError, setFormError] = useState<string | null>(null);
   const [dbOk, setDbOk] = useState<boolean | null>(null);
   const [workstation, setWorkstation] = useState<WorkstationInfoDTO | null>(null);
@@ -32,8 +33,9 @@ export function LoginPage() {
 
   useEffect(() => {
     if (!hydrated) return;
+    if (bootstrapRequired) navigate("/setup", { replace: true });
     if (user) navigate("/", { replace: true });
-  }, [hydrated, user, navigate]);
+  }, [bootstrapRequired, hydrated, user, navigate]);
 
   useEffect(() => {
     void samyInvoke<WorkstationInfoDTO>(IPC_CHANNELS.APP_WORKSTATION_INFO)
@@ -43,6 +45,18 @@ export function LoginPage() {
       .then(() => setDbOk(true))
       .catch(() => setDbOk(false));
   }, []);
+
+  async function initializeSystem(): Promise<void> {
+    try {
+      const status = await refreshBootstrapStatus();
+      useAuthStore.getState().setBootstrapRequired(status.state === "needs_setup");
+      navigate(status.state === "needs_setup" ? "/setup" : "/", { replace: true });
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Initialisation indisponible.");
+      useAuthStore.getState().setBootstrapRequired(true);
+      navigate("/setup", { replace: true });
+    }
+  }
 
   useEffect(() => {
     const id = window.setTimeout(() => usernameRef.current?.focus(), 180);
@@ -213,6 +227,14 @@ export function LoginPage() {
                   Connexion
                 </button>
               </form>
+
+              <button
+                type="button"
+                className="focus-ring mt-3 inline-flex min-h-touch w-full items-center justify-center border border-border bg-surface-elevated px-4 py-2 text-[13px] font-semibold text-foreground hover:bg-surface-muted"
+                onClick={() => void initializeSystem()}
+              >
+                Initialiser le système
+              </button>
 
               <p className="mt-8 border border-border bg-surface-muted/80 px-3 py-2 text-[11.5px] leading-snug text-foreground-muted">
                 <span className="font-semibold text-foreground">Sécurité poste première installation</span>

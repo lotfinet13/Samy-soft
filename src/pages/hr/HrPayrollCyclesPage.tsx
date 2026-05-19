@@ -1,8 +1,10 @@
 import { IPC_CHANNELS } from "@shared/ipc-channels";
 import { PERMISSIONS } from "@shared/permissions";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Navigate } from "react-router-dom";
+import { AsyncStatePanel } from "@/components/system/AsyncStatePanel";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useAsyncLoad } from "@/hooks/useAsyncLoad";
 import { downloadBase64Blob } from "@/lib/binary-download";
 import { usePermissions } from "@/hooks/usePermissions";
 import { invalidateHrCaches, invalidateReportsCaches } from "@/lib/invalidate-ui-cache";
@@ -28,42 +30,32 @@ type PrRow = {
 
 export function HrPayrollCyclesPage() {
   const { can } = usePermissions();
-  const [cycles, setCycles] = useState<Cycle[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [records, setRecords] = useState<PrRow[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [form, setForm] = useState({ label: "", periodStart: "", periodEnd: "" });
   const [adjForm, setAdjForm] = useState({ payrollRecordId: "", kind: "BONUS" as "BONUS" | "DEDUCTION" | "CORRECTION", amount: "", reason: "" });
 
-  async function loadCycles(): Promise<void> {
-    const res = await samyInvoke<{ items: Cycle[] }>(IPC_CHANNELS.HR_PAYROLL_CYCLE_LIST);
-    setCycles(res.items);
-  }
+  const {
+    data: cyclesData,
+    loading: cyclesLoading,
+    error: cyclesError,
+    reload: loadCycles,
+  } = useAsyncLoad(() => samyInvoke<{ items: Cycle[] }>(IPC_CHANNELS.HR_PAYROLL_CYCLE_LIST), []);
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        await loadCycles();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-  }, []);
+  const cycles = cyclesData?.items ?? [];
 
-  useEffect(() => {
-    if (!selected) {
-      setRecords([]);
-      return;
-    }
-    void (async () => {
-      try {
-        const res = await samyInvoke<{ items: PrRow[] }>(IPC_CHANNELS.HR_PAYROLL_CYCLE_RECORDS, selected);
-        setRecords(res.items);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-  }, [selected]);
+  const {
+    data: recordsData,
+    loading: recordsLoading,
+    error: recordsError,
+    reload: loadRecords,
+  } = useAsyncLoad(
+    () => samyInvoke<{ items: PrRow[] }>(IPC_CHANNELS.HR_PAYROLL_CYCLE_RECORDS, selected!),
+    [selected],
+    { immediate: Boolean(selected) },
+  );
+
+  const records = selected ? (recordsData?.items ?? []) : [];
 
   if (!can(PERMISSIONS.PAYROLL_READ)) return <Navigate to="/rh/tableau-de-bord" replace />;
 
@@ -71,7 +63,7 @@ export function HrPayrollCyclesPage() {
 
   async function createCycle(): Promise<void> {
     if (!can(PERMISSIONS.PAYROLL_EXECUTE)) return;
-    setError(null);
+    setActionError(null);
     try {
       await samyInvoke(IPC_CHANNELS.HR_PAYROLL_CYCLE_CREATE, {
         label: form.label || null,
@@ -83,7 +75,7 @@ export function HrPayrollCyclesPage() {
       setForm({ label: "", periodStart: "", periodEnd: "" });
       await loadCycles();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setActionError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -92,8 +84,7 @@ export function HrPayrollCyclesPage() {
     await samyInvoke(IPC_CHANNELS.HR_PAYROLL_COMPUTE, { payrollCycleId: selected });
     invalidateHrCaches();
     invalidateReportsCaches();
-    const res = await samyInvoke<{ items: PrRow[] }>(IPC_CHANNELS.HR_PAYROLL_CYCLE_RECORDS, selected);
-    setRecords(res.items);
+    await loadRecords();
     await loadCycles();
   }
 
@@ -106,14 +97,14 @@ export function HrPayrollCyclesPage() {
   }
 
   async function pdfPayrollSlip(recordId: string): Promise<void> {
-    setError(null);
+    setActionError(null);
     try {
       const res = await samyInvoke<{ base64: string; filenameSuggested: string }>(IPC_CHANNELS.REPORTS_PDF_PAYROLL_SLIP, {
         payrollRecordId: recordId,
       });
       downloadBase64Blob(res, "application/pdf", res.filenameSuggested);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      setActionError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -127,10 +118,7 @@ export function HrPayrollCyclesPage() {
     });
     invalidateHrCaches();
     invalidateReportsCaches();
-    if (selected) {
-      const res = await samyInvoke<{ items: PrRow[] }>(IPC_CHANNELS.HR_PAYROLL_CYCLE_RECORDS, selected);
-      setRecords(res.items);
-    }
+    if (selected) await loadRecords();
   }
 
   const selCycle = cycles.find((c) => c.id === selected);
@@ -142,8 +130,8 @@ export function HrPayrollCyclesPage() {
         subtitle="Moteur ledger : recalcul depuis présences + ajustements datés + récupération avances tracées."
       />
 
-      {error ? (
-        <p className="rounded border border-danger/40 bg-danger/10 px-2 py-1.5 text-[12px] text-danger">{error}</p>
+      {actionError ? (
+        <p className="rounded border border-danger/40 bg-danger/10 px-2 py-1.5 text-[12px] text-danger">{actionError}</p>
       ) : null}
 
       <section className="rounded-[var(--erp-radius-panel)] border border-border bg-surface p-3">
@@ -181,6 +169,7 @@ export function HrPayrollCyclesPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-[var(--erp-radius-panel)] border border-border bg-surface p-2">
           <h3 className="mb-2 text-[11px] font-bold uppercase text-foreground-muted">Cycles</h3>
+          <AsyncStatePanel loading={cyclesLoading} error={cyclesError} onRetry={() => void loadCycles()} loadingLabel="Chargement des cycles…">
           <table className="w-full border-collapse text-left text-[11px]">
             <thead>
               <tr className="border-b border-border text-[10px] text-foreground-muted">
@@ -207,6 +196,7 @@ export function HrPayrollCyclesPage() {
               ))}
             </tbody>
           </table>
+          </AsyncStatePanel>
         </div>
 
         <div className="rounded-[var(--erp-radius-panel)] border border-border bg-surface p-2">
@@ -226,6 +216,12 @@ export function HrPayrollCyclesPage() {
           {!selected ? (
             <p className="text-[12px] text-foreground-muted">Sélectionnez un cycle.</p>
           ) : (
+            <AsyncStatePanel
+              loading={recordsLoading}
+              error={recordsError}
+              onRetry={() => void loadRecords()}
+              loadingLabel="Chargement des fiches paie…"
+            >
             <table className="w-full border-collapse text-left text-[11px]">
               <thead>
                 <tr className="border-b border-border text-[10px] text-foreground-muted">
@@ -261,6 +257,7 @@ export function HrPayrollCyclesPage() {
                 ))}
               </tbody>
             </table>
+            </AsyncStatePanel>
           )}
 
           {selected && selCycle?.status === "DRAFT" && can(PERMISSIONS.PAYROLL_ADJUST) ? (
@@ -311,3 +308,4 @@ export function HrPayrollCyclesPage() {
     </div>
   );
 }
+

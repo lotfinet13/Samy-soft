@@ -1,9 +1,10 @@
 import { IPC_CHANNELS } from "@shared/ipc-channels";
 import { PERMISSIONS } from "@shared/permissions";
-import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
+import { AsyncStatePanel } from "@/components/system/AsyncStatePanel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatCard } from "@/components/ui/StatCard";
+import { useAsyncLoad } from "@/hooks/useAsyncLoad";
 import { usePermissions } from "@/hooks/usePermissions";
 import { samyInvoke } from "@/lib/samy";
 
@@ -28,19 +29,10 @@ type Dash = {
 
 export function HrDashboardPage() {
   const { can } = usePermissions();
-  const [data, setData] = useState<Dash | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await samyInvoke<Dash>(IPC_CHANNELS.HR_DASHBOARD_SUMMARY);
-        setData(res);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-  }, []);
+  const { data, loading, error, reload } = useAsyncLoad(
+    () => samyInvoke<Dash>(IPC_CHANNELS.HR_DASHBOARD_SUMMARY),
+    [],
+  );
 
   if (!can(PERMISSIONS.HR_READ)) return <Navigate to="/" replace />;
 
@@ -50,10 +42,7 @@ export function HrDashboardPage() {
         title="Centre de contrôle RH — Usine"
         subtitle="Présences du jour, alertes heures sup, masse salariale brouillon, traçabilité employés."
       />
-      {error ? (
-        <p className="rounded border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">{error}</p>
-      ) : null}
-
+      <AsyncStatePanel loading={loading} error={error} onRetry={() => void reload()} loadingLabel="Chargement du tableau de bord RH…">
       <div className="grid gap-3 md:grid-cols-4">
         <StatCard label="Pointages / jour" value={String(data?.today.punchCount ?? "…")} hint="Entrées présence enregistrées" />
         <StatCard label="Présents (estim.)" value={String(data?.today.presentApprox ?? "…")} hint="Statuts travail effectif" />
@@ -176,6 +165,7 @@ export function HrDashboardPage() {
           <p className="text-[12px] text-foreground-muted">Pas encore d&apos;événements RH journalisés.</p>
         )}
       </section>
+      </AsyncStatePanel>
     </div>
   );
 }

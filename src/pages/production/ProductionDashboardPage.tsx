@@ -1,8 +1,9 @@
 import { IPC_CHANNELS } from "@shared/ipc-channels";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { AsyncStatePanel } from "@/components/system/AsyncStatePanel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatCard } from "@/components/ui/StatCard";
+import { useAsyncLoad } from "@/hooks/useAsyncLoad";
 import { samyInvoke } from "@/lib/samy";
 
 type Summary = {
@@ -14,21 +15,19 @@ type Summary = {
 };
 
 export function ProductionDashboardPage() {
-  const [data, setData] = useState<Summary | null>(null);
-
-  useEffect(() => {
-    void samyInvoke<Summary>(IPC_CHANNELS.PRODUCTION_DASHBOARD_SUMMARY)
-      .then(setData)
-      .catch(console.error);
-  }, []);
+  const { data, loading, error, reload } = useAsyncLoad(
+    () => samyInvoke<Summary>(IPC_CHANNELS.PRODUCTION_DASHBOARD_SUMMARY),
+    [],
+  );
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" data-testid="production-dashboard-page">
       <PageHeader
         title="Poste commanderie fabrication"
         subtitle="Orchestration recettes ⇄ lots ⇄ mouvements PRODUCTION_OUT — aucune rupture hors grand-livre."
       />
 
+      <AsyncStatePanel loading={loading} error={error} onRetry={() => void reload()}>
       <div className="grid gap-3 md:grid-cols-3">
         <StatCard
           hint="Lots planifiés / en cours"
@@ -45,7 +44,7 @@ export function ProductionDashboardPage() {
           hint="Mouvements PRODUCTION_WASTE horodatés"
           label="Alertes déchets atelier"
           tone="warning"
-          value={String(data?.wasteAlerts.length ?? 0)}
+          value={String(data?.wasteAlerts?.length ?? 0)}
         />
       </div>
 
@@ -129,6 +128,7 @@ export function ProductionDashboardPage() {
           )}
         </div>
       </Panel>
+      </AsyncStatePanel>
     </div>
   );
 }

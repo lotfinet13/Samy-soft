@@ -10,6 +10,8 @@ import { DataTable } from "@/components/ui/DataTable";
 import { FormField } from "@/components/ui/FormField";
 import { usePermissions } from "@/hooks/usePermissions";
 import { invalidateInventoryCaches } from "@/lib/invalidate-ui-cache";
+import { notifySuccess } from "@/lib/notify";
+import { invalidateReportsCaches } from "@/lib/invalidate-ui-cache";
 import { samyInvoke } from "@/lib/samy";
 
 type SupplierBrief = { id: string; name: string };
@@ -76,6 +78,7 @@ export function InventoryPurchasesPage() {
 
   const [list, setList] = useState<PurchaseSummary[]>([]);
   const [meta, setMeta] = useState({ total: 0, page: 1, pageSize: 35 });
+  const [listLoading, setListLoading] = useState(true);
 
   const [suppliers, setSuppliers] = useState<SupplierBrief[]>([]);
   const [rawMaterials, setRawMaterials] = useState<ArticleRow[]>([]);
@@ -91,12 +94,17 @@ export function InventoryPurchasesPage() {
   const [submitting, setSubmitting] = useState(false);
 
   async function reload(page = meta.page): Promise<void> {
-    const res = await samyInvoke<PurchasePageResponse>(IPC_CHANNELS.INVENTORY_PURCHASE_LIST, {
-      page,
-      pageSize: meta.pageSize,
-    });
-    setList(res.items);
-    setMeta({ total: res.total, page: res.page, pageSize: res.pageSize });
+    setListLoading(true);
+    try {
+      const res = await samyInvoke<PurchasePageResponse>(IPC_CHANNELS.INVENTORY_PURCHASE_LIST, {
+        page,
+        pageSize: meta.pageSize,
+      });
+      setList(res.items);
+      setMeta({ total: res.total, page: res.page, pageSize: res.pageSize });
+    } finally {
+      setListLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -164,6 +172,8 @@ export function InventoryPurchasesPage() {
       setSubmitting(true);
       await samyInvoke(IPC_CHANNELS.INVENTORY_PURCHASE_CREATE, payload);
       invalidateInventoryCaches();
+      invalidateReportsCaches();
+      notifySuccess("Bon d'achat enregistré — stock mis à jour.");
       setSupplierId("");
       setPurchaseDateLocal("");
       setInvoiceRef("");
@@ -225,15 +235,16 @@ export function InventoryPurchasesPage() {
       />
 
       {canPurchase ? (
-        <section className="border border-border bg-surface-muted/35 p-4">
+        <section className="border border-border bg-surface-muted/35 p-4" data-testid="purchase-form">
           <header className="mb-4 border-b border-border pb-3 text-[12px] font-semibold uppercase tracking-wide text-foreground-muted">
             Nouveau bon d&apos;entrée acheteur
           </header>
-          <form className="flex flex-col gap-4" onSubmit={(event) => void submitPurchase(event)}>
+          <form className="flex flex-col gap-4" data-testid="purchase-modal-form" onSubmit={(event) => void submitPurchase(event)}>
             <div className="grid gap-4 md:grid-cols-2">
               <FormField label="Fournisseur" description="Référencé sur la table fournisseur.">
                 <select
                   className="control-chrome w-full"
+                  data-testid="purchase-modal-supplier"
                   required
                   value={supplierId}
                   onChange={(event) => setSupplierId(event.target.value)}
@@ -296,6 +307,7 @@ export function InventoryPurchasesPage() {
                   <FormField label={line.materialKind === "RAW" ? "Matière" : "Article"} description="SKU figé lors de la saisie.">
                     <select
                       className="control-chrome w-full font-mono"
+                      data-testid="purchase-modal-line-material"
                       required
                       value={line.materialKind === "RAW" ? line.rawMaterialId : line.packagingMaterialId}
                       onChange={(event) => {
@@ -360,11 +372,12 @@ export function InventoryPurchasesPage() {
             </div>
 
             {submitError ? (
-              <p className="border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] font-semibold text-danger">{submitError}</p>
+              <p className="border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] font-semibold text-danger" data-testid="purchase-modal-error">{submitError}</p>
             ) : null}
 
             <button
               type="submit"
+              data-testid="purchase-modal-submit"
               disabled={submitting || lines.length === 0}
               className="focus-ring border border-accent bg-accent py-2 text-[13px] font-semibold text-accent-foreground hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -381,7 +394,7 @@ export function InventoryPurchasesPage() {
 
       <section className="flex flex-col gap-4">
         <header className="text-[13px] font-semibold uppercase tracking-wide text-foreground-muted">Journal des bons</header>
-        <DataTable columns={columns} data={list} emptyLabel="Aucun bon d’achat encore enregistré." />
+        <DataTable columns={columns} data={list} loading={listLoading} emptyLabel="Aucun bon d’achat encore enregistré." />
         <div className="flex justify-between gap-4 text-[11px] text-foreground-muted">
           <button
             type="button"

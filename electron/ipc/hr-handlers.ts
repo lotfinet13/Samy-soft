@@ -1,5 +1,10 @@
 import { ipcMain } from "electron";
-import { AdvanceRepaymentStatus, AttendanceStatus, PayrollCycleStatus, PayrollStatus } from "@prisma/client";
+import {
+  AdvanceRepaymentStatus,
+  AttendanceStatus,
+  PayrollCycleStatus,
+  PayrollStatus,
+} from "../prisma-client.js";
 
 import { IPC_CHANNELS } from "../../shared/ipc-channels.js";
 import { PERMISSIONS } from "../../shared/permissions.js";

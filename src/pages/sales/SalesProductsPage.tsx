@@ -90,7 +90,10 @@ export function SalesProductsPage() {
       includeInactive: false,
     })
       .then((r) => setRecipeOptions(r.items.map((i) => ({ id: i.id, code: i.code, labelFr: i.labelFr }))))
-      .catch(() => setRecipeOptions([]));
+      .catch((err) => {
+        console.error("[sales-products] recipe options", err);
+        setRecipeOptions([]);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

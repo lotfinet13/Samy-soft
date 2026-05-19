@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "../../prisma-client.js";
 
 import type { ReportingPresetSection } from "../../../shared/schemas/reporting.js";
 

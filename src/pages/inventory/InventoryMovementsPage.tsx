@@ -9,7 +9,7 @@ import { DataTable } from "@/components/ui/DataTable";
 import { FormField } from "@/components/ui/FormField";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { usePermissions } from "@/hooks/usePermissions";
-import { invalidateInventoryCaches } from "@/lib/invalidate-ui-cache";
+import { invalidateInventoryCaches, invalidateReportsCaches } from "@/lib/invalidate-ui-cache";
 import { samyInvoke } from "@/lib/samy";
 
 type ArticleRow = {
@@ -59,6 +59,7 @@ export function InventoryMovementsPage() {
 
   const [meta, setMeta] = useState({ total: 0, page: 1, pageSize: 40 });
   const [rows, setRows] = useState<MovementRow[]>([]);
+  const [listLoading, setListLoading] = useState(true);
   const [rawMaterials, setRawMaterials] = useState<ArticleRow[]>([]);
   const [packMaterials, setPackMaterials] = useState<ArticleRow[]>([]);
   const [panel, setPanel] = useState<PanelTabId>("list");
@@ -95,11 +96,16 @@ export function InventoryMovementsPage() {
   });
 
   async function reloadMovements(page = meta.page): Promise<void> {
-    const paging = inventorySearchSchema.parse({ page, pageSize: meta.pageSize, q: "", includeInactive: false });
-    const pagingOnly = { page: paging.page, pageSize: paging.pageSize };
-    const res = await samyInvoke<MovementListResponse>(IPC_CHANNELS.INVENTORY_MOVEMENT_LIST, pagingOnly);
-    setRows(res.items as MovementRow[]);
-    setMeta({ total: res.total, page: res.page, pageSize: res.pageSize });
+    setListLoading(true);
+    try {
+      const paging = inventorySearchSchema.parse({ page, pageSize: meta.pageSize, q: "", includeInactive: false });
+      const pagingOnly = { page: paging.page, pageSize: paging.pageSize };
+      const res = await samyInvoke<MovementListResponse>(IPC_CHANNELS.INVENTORY_MOVEMENT_LIST, pagingOnly);
+      setRows(res.items as MovementRow[]);
+      setMeta({ total: res.total, page: res.page, pageSize: res.pageSize });
+    } finally {
+      setListLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -193,6 +199,7 @@ export function InventoryMovementsPage() {
       });
       await samyInvoke(IPC_CHANNELS.INVENTORY_MOVEMENT_OUTBOUND, dto);
       invalidateInventoryCaches();
+      invalidateReportsCaches();
       setStatus("SUCCÈS — Sortie industrielle persistée.");
       await reloadMovements(meta.page).catch(console.error);
       setOutbound((prev) => ({ ...prev, qtyOut: "1", note: "", occurredAtLocal: "" }));
@@ -220,6 +227,7 @@ export function InventoryMovementsPage() {
       });
       await samyInvoke(IPC_CHANNELS.INVENTORY_MOVEMENT_INBOUND, dto);
       invalidateInventoryCaches();
+      invalidateReportsCaches();
       setStatus("SUCCÈS — Entrée industrielle persistée.");
       await reloadMovements(meta.page).catch(console.error);
       setInbound((prev) => ({ ...prev, qtyIn: "1", note: "", occurredAtLocal: "" }));
@@ -246,6 +254,7 @@ export function InventoryMovementsPage() {
       });
       await samyInvoke(IPC_CHANNELS.INVENTORY_MOVEMENT_MANUAL_ADJUSTMENT, dto);
       invalidateInventoryCaches();
+      invalidateReportsCaches();
       setStatus("SUCCÈS — Ajustement physique persisté (MANUAL_ADJUSTMENT).");
       await reloadMovements(meta.page).catch(console.error);
       setAdjust((prev) => ({ ...prev, note: "", occurredAtLocal: "" }));
@@ -298,7 +307,12 @@ export function InventoryMovementsPage() {
 
       {panel === "list" ? (
         <>
-          <DataTable columns={columns} data={rows} emptyLabel="Aucun mouvement : initialisez avec une réception ou un mouvement d’atelier." />
+          <DataTable
+            columns={columns}
+            data={rows}
+            loading={listLoading}
+            emptyLabel="Aucun mouvement : initialisez avec une réception ou un mouvement d’atelier."
+          />
           <div className="flex justify-between gap-4 text-[11px] text-foreground-muted">
             <button
               type="button"

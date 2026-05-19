@@ -1,12 +1,12 @@
 import {
   BatchStatus,
+  Decimal,
   InvoicePaymentStatus,
   InvoiceStatus,
   PayrollCycleStatus,
   PayrollStatus,
-} from "@prisma/client";
-import type { PrismaClient } from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
+  type PrismaClient,
+} from "../prisma-client.js";
 import type { DataIntegrityReport, IntegrityFinding } from "../../shared/data-integrity-types.js";
 import { decimalToString, parseDecimal } from "./inventory-service.js";
 import { computeLineAmounts } from "./sales-service.js";

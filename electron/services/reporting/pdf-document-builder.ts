@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, type PDFFont, rgb } from "pdf-lib";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "../../prisma-client.js";
 
 import { decimalToString } from "../inventory-service.js";
 

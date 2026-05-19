@@ -9,7 +9,12 @@ import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useOperationalFilters } from "@/hooks/useOperationalFilters";
 import { usePermissions } from "@/hooks/usePermissions";
-import { invalidateSalesCaches } from "@/lib/invalidate-ui-cache";
+import {
+  invalidateInventoryCaches,
+  invalidateReportsCaches,
+  invalidateSalesCaches,
+} from "@/lib/invalidate-ui-cache";
+import { notifySuccess } from "@/lib/notify";
 import { samyInvoke } from "@/lib/samy";
 import { invoiceStatusLabels, paymentStatusLabels } from "./sales-labels";
 
@@ -37,6 +42,11 @@ export function SalesInvoicesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [customers, setCustomers] = useState<CustomerBrief[]>([]);
   const [products, setProducts] = useState<ProductBrief[]>([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+  const [pickerLoading, setPickerLoading] = useState(true);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
 
   const [customerId, setCustomerId] = useState("");
   const [lineProductId, setLineProductId] = useState("");
@@ -51,38 +61,86 @@ export function SalesInvoicesPage() {
   const [presetName, setPresetName] = useState("");
 
   async function reload(page = 1, qOverride?: string): Promise<void> {
-    const qs = qOverride !== undefined ? qOverride : listQ;
-    const payload: Record<string, unknown> = {
-      page,
-      pageSize: meta.pageSize,
-      q: qs,
-    };
-    if (statusFilter) payload.status = statusFilter;
-    if (paymentFilter) payload.paymentStatus = paymentFilter;
-    const res = await samyInvoke<{ items: InvRow[]; total: number }>(IPC_CHANNELS.SALES_INVOICE_LIST, payload);
-    setRows(res.items);
-    setMeta({ total: res.total, page, pageSize: meta.pageSize });
+    setListLoading(true);
+    setListError(null);
+    try {
+      const qs = qOverride !== undefined ? qOverride : listQ;
+      const payload: Record<string, unknown> = {
+        page,
+        pageSize: meta.pageSize,
+        q: qs,
+      };
+      if (statusFilter) payload.status = statusFilter;
+      if (paymentFilter) payload.paymentStatus = paymentFilter;
+      const res = await samyInvoke<{ items: InvRow[]; total: number }>(IPC_CHANNELS.SALES_INVOICE_LIST, payload);
+      setRows(res.items);
+      setMeta({ total: res.total, page, pageSize: meta.pageSize });
+    } catch (e) {
+      setListError(e instanceof Error ? e.message : "Impossible de charger les factures.");
+    } finally {
+      setListLoading(false);
+    }
+  }
+
+  async function loadPickers(): Promise<void> {
+    setPickerLoading(true);
+    setPickerError(null);
+    try {
+      const [custRes, prodRes] = await Promise.all([
+        samyInvoke<{ items: CustomerBrief[] }>(IPC_CHANNELS.SALES_CUSTOMER_LIST, {
+          page: 1,
+          pageSize: 250,
+          q: "",
+          includeInactive: false,
+        }),
+        samyInvoke<{ items: ProductBrief[] }>(IPC_CHANNELS.SALES_PRODUCT_LIST, {
+          page: 1,
+          pageSize: 250,
+          q: "",
+          includeInactive: true,
+        }),
+      ]);
+      setCustomers(custRes.items);
+      setProducts(prodRes.items);
+      if (custRes.items.length === 0 || prodRes.items.length === 0) {
+        setPickerError("Catalogue clients ou produits vide — vérifiez les droits et la base.");
+      }
+    } catch (e) {
+      setPickerError(e instanceof Error ? e.message : "Échec chargement clients/produits.");
+    } finally {
+      setPickerLoading(false);
+    }
   }
 
   useEffect(() => {
-    void reload(1).catch(console.error);
-    void samyInvoke<{ items: CustomerBrief[] }>(IPC_CHANNELS.SALES_CUSTOMER_LIST, {
-      page: 1,
-      pageSize: 500,
-      q: "",
-      includeInactive: false,
-    }).then((r) => setCustomers(r.items));
-    void samyInvoke<{ items: ProductBrief[] }>(IPC_CHANNELS.SALES_PRODUCT_LIST, {
-      page: 1,
-      pageSize: 500,
-      q: "",
-      includeInactive: true,
-    }).then((r) => setProducts(r.items));
+    void reload(1);
+    void loadPickers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function resetInvoiceModal(): void {
+    setCustomerId("");
+    setLineProductId("");
+    setLineQty("1");
+    setLinePrice("");
+    setLineLabel("");
+  }
+
+  async function openInvoiceModal(): Promise<void> {
+    resetInvoiceModal();
+    setModalOpen(true);
+    await loadPickers();
+  }
+
+  function closeInvoiceModal(): void {
+    setModalOpen(false);
+    resetInvoiceModal();
+  }
+
   async function createDraft(): Promise<void> {
-    if (!customerId) return;
+    if (!customerId || savingDraft) return;
+    setSavingDraft(true);
+    try {
     const prod = products.find((p) => p.id === lineProductId);
     const lines =
       lineProductId && prod
@@ -113,8 +171,15 @@ export function SalesInvoicesPage() {
       lines,
     });
     invalidateSalesCaches();
-    setModalOpen(false);
+    invalidateInventoryCaches();
+    invalidateReportsCaches();
+    notifySuccess("Brouillon de facture créé.");
+    closeInvoiceModal();
+    void reload(meta.page);
     navigate(`/ventes/factures/${res.id}`);
+    } finally {
+      setSavingDraft(false);
+    }
   }
 
   const columns = useMemo<ColumnDef<InvRow>[]>(
@@ -247,7 +312,7 @@ export function SalesInvoicesPage() {
 
       <div className="flex flex-wrap gap-2">
         {canWrite ? (
-          <button type="button" className="btn-secondary inline-flex h-9 items-center gap-2 px-3 text-[12px]" onClick={() => setModalOpen(true)}>
+          <button type="button" className="btn-secondary inline-flex h-9 items-center gap-2 px-3 text-[12px]" data-testid="invoice-modal-open" onClick={() => void openInvoiceModal()}>
             <Plus className="h-4 w-4" />
             Nouveau brouillon
           </button>
@@ -257,13 +322,29 @@ export function SalesInvoicesPage() {
         </button>
       </div>
 
-      <DataTable columns={columns} data={rows} />
+      {listError ? (
+        <p className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{listError}</p>
+      ) : null}
+      <DataTable columns={columns} data={rows} loading={listLoading} emptyLabel="Aucune facture." />
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nouveau brouillon">
+      <Modal open={modalOpen} onClose={() => closeInvoiceModal()} title="Nouveau brouillon" testId="invoice-modal">
         <div className="flex flex-col gap-3 p-1 text-[13px]">
+          {pickerError ? (
+            <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+              {pickerError}{" "}
+              <button type="button" className="font-semibold underline" onClick={() => void loadPickers()}>
+                Réessayer
+              </button>
+            </p>
+          ) : null}
+          {pickerLoading ? (
+            <p className="text-xs text-foreground-muted" data-testid="invoice-modal-picker-loading">
+              Chargement catalogue…
+            </p>
+          ) : null}
           <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase text-foreground-muted">
             Client
-            <select className="control-chrome h-9 px-2" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+            <select className="control-chrome h-9 px-2" data-testid="invoice-modal-customer" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
               <option value="">—</option>
               {customers.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -300,11 +381,11 @@ export function SalesInvoicesPage() {
             </label>
           </div>
           <div className="flex justify-end gap-2 border-t border-border pt-3">
-            <button type="button" className="btn-secondary h-9 px-3 text-[12px]" onClick={() => setModalOpen(false)}>
+            <button type="button" className="btn-secondary h-9 px-3 text-[12px]" data-testid="invoice-modal-cancel" onClick={() => closeInvoiceModal()}>
               Annuler
             </button>
-            <button type="button" className="btn-primary h-9 px-3 text-[12px]" onClick={() => void createDraft()} disabled={!customerId}>
-              Créer
+            <button type="button" className="btn-primary h-9 px-3 text-[12px]" data-testid="invoice-modal-submit" onClick={() => void createDraft()} disabled={!customerId || savingDraft || pickerLoading}>
+              {savingDraft ? "Création…" : "Créer"}
             </button>
           </div>
         </div>

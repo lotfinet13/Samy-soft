@@ -1,13 +1,13 @@
 import {
   BatchStatus,
+  Decimal,
   InventoryMovementKind,
   InventoryUnit,
   MaterialKind,
-  Prisma,
   PrismaClient,
+  type Prisma,
   type Recipe,
-} from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
+} from "../prisma-client.js";
 import {
   decimalToString,
   getCurrentQty,

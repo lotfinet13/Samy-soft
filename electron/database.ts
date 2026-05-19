@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "./prisma-client.js";
 import { app } from "electron";
+import { parseReleaseChannel, resolveDatabaseBasename, userDataChannelSegment } from "../shared/release-channel.js";
 
 let prisma: PrismaClient | null = null;
 
@@ -21,10 +22,15 @@ export function getDatabaseFilePath(): string {
   if (fromEnv.length > 0) {
     return path.isAbsolute(fromEnv) ? fromEnv : path.join(process.cwd(), fromEnv);
   }
+  const channel = parseReleaseChannel(process.env.SAMY_RELEASE_CHANNEL);
+  const basename = resolveDatabaseBasename(channel);
   if (app.isPackaged) {
-    return path.join(app.getPath("userData"), "samy-soft.sqlite");
+    const segment = userDataChannelSegment(channel);
+    const root = segment ? path.join(app.getPath("userData"), segment) : app.getPath("userData");
+    return path.join(root, basename);
   }
-  return path.join(process.cwd(), ".data", "samy-soft.sqlite");
+  const devDir = channel === "production" ? ".data" : path.join(".data", channel);
+  return path.join(process.cwd(), devDir, basename);
 }
 
 /**

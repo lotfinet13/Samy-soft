@@ -1,4 +1,4 @@
-import { LockScope, type PrismaClient } from "@prisma/client";
+import { LockScope, type PrismaClient } from "../prisma-client.js";
 
 import type { OptimisticGuard, PessimisticLockTarget } from "../repositories/db-context.js";
 

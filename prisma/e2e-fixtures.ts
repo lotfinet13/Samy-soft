@@ -23,6 +23,37 @@ async function main(): Promise<void> {
   const admin = await prisma.user.findUnique({ where: { username: "admin" } });
   const adminId = admin?.id ?? null;
 
+  /** Évite l’accumulation de fournisseurs éphémères (pagination E2E > pageSize). */
+  const ephemeralSuppliers = await prisma.supplier.findMany({
+    where: {
+      OR: [
+        { name: { startsWith: "E2E-UI-SUP-" } },
+        { name: { startsWith: "E2E-SUP-" } },
+        { name: { startsWith: "E2E-RESTART-" } },
+      ],
+    },
+    select: { id: true },
+  });
+  const ephemeralIds = ephemeralSuppliers.map((s) => s.id);
+  if (ephemeralIds.length > 0) {
+    await prisma.purchaseEntry.deleteMany({ where: { supplierId: { in: ephemeralIds } } });
+    await prisma.rawMaterial.updateMany({
+      where: { supplierId: { in: ephemeralIds } },
+      data: { supplierId: null },
+    });
+    await prisma.packagingMaterial.updateMany({
+      where: { supplierId: { in: ephemeralIds } },
+      data: { supplierId: null },
+    });
+    await prisma.supplier.deleteMany({ where: { id: { in: ephemeralIds } } });
+  }
+  await prisma.rawMaterial.deleteMany({
+    where: {
+      AND: [{ sku: { startsWith: "E2E-RAW-" } }, { sku: { not: "E2E-RAW-VANILLE" } }],
+    },
+  });
+  await prisma.rawMaterial.deleteMany({ where: { sku: { startsWith: "E2E-UI-RAW-" } } });
+
   let supplier = await prisma.supplier.findFirst({ where: { name: "__E2E_SUPPLIER__" } });
   if (!supplier) {
     supplier = await prisma.supplier.create({
@@ -51,7 +82,7 @@ async function main(): Promise<void> {
 
   void raw;
 
-  await prisma.packagingMaterial.upsert({
+  const packaging = await prisma.packagingMaterial.upsert({
     where: { sku: "E2E-PKG-POT500" },
     update: {},
     create: {
@@ -64,7 +95,24 @@ async function main(): Promise<void> {
       isActive: true,
       supplierId: supplier.id,
     },
+    select: { id: true },
   });
+
+  const packInbound = await prisma.stockMovement.count({
+    where: { referenceType: "E2E_SEED_PACK_INBOUND" },
+  });
+  if (packInbound === 0) {
+    await postSignedMovement({
+      prisma,
+      materialKind: MaterialKind.PACKAGING,
+      materialId: packaging.id,
+      qtySigned: new Decimal(200),
+      inventoryKind: InventoryMovementKind.PURCHASE_IN,
+      referenceType: "E2E_SEED_PACK_INBOUND",
+      referenceId: "e2e-pack-001",
+      userId: adminId,
+    });
+  }
 
   const existingInbound = await prisma.stockMovement.count({
     where: {
@@ -122,13 +170,18 @@ async function main(): Promise<void> {
 
   await prisma.product.upsert({
     where: { sku: "E2E-PROD-POT500" },
-    update: {},
+    update: {
+      packagingMaterialId: packaging.id,
+      recipeId: recipe.id,
+      isActive: true,
+    },
     create: {
       sku: "E2E-PROD-POT500",
       name: "Glace pot 500g — E2E",
       sellingPrice: new Decimal(220),
       unit: InventoryUnit.UNIT,
       recipeId: recipe.id,
+      packagingMaterialId: packaging.id,
       isActive: true,
     },
   });

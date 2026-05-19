@@ -1,4 +1,4 @@
-import { BarcodeEntityType, type PrismaClient } from "@prisma/client";
+import { BarcodeEntityType, type PrismaClient } from "../prisma-client.js";
 
 import type { BarcodeResolution, ThermalPrintJob, TouchTerminalConfig } from "../../shared/pos/types.js";
 

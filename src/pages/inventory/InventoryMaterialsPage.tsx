@@ -34,8 +34,8 @@ type InventoryRow = {
   labelFr: string;
   category?: string | null;
   unit: string;
-  minimumStockQty: unknown;
-  costPriceUnit: unknown;
+  minimumStockQty: string;
+  costPriceUnit: string;
   isActive?: boolean | null;
   expirationTracking?: boolean | null;
   expiryWarningDays?: number | null;
@@ -63,6 +63,7 @@ export function InventoryMaterialsPage(props: { mode: "RAW" | "PACKAGING" }) {
 
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [meta, setMeta] = useState({ total: 0, page: 1, pageSize: 40 });
+  const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [suppliers, setSuppliers] = useState<SupplierBrief[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -78,22 +79,25 @@ export function InventoryMaterialsPage(props: { mode: "RAW" | "PACKAGING" }) {
       pageSize: meta.pageSize,
       includeInactive: false,
     });
-    const res = await samyInvoke<RawListResponse>(channelList, payload);
-    setRows(res.items as InventoryRow[]);
-    setMeta({ total: res.total, page: res.page, pageSize: res.pageSize });
-  }
-
-  async function doSearch(trackRecent: boolean): Promise<void> {
+    setLoading(true);
     try {
-      if (trackRecent && q.trim().length >= 2) pushRecent(q.trim());
-      await reload(1);
-    } catch (e) {
-      console.error(e);
+      const res = await samyInvoke<RawListResponse>(channelList, payload);
+      setRows(res.items);
+      setMeta({ total: res.total, page: res.page, pageSize: res.pageSize });
+    } catch {
+      /* toast affiché par samyInvoke */
+    } finally {
+      setLoading(false);
     }
   }
 
+  async function doSearch(trackRecent: boolean): Promise<void> {
+    if (trackRecent && q.trim().length >= 2) pushRecent(q.trim());
+    await reload(1);
+  }
+
   useEffect(() => {
-    void reload(1).catch(console.error);
+    void reload(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- liste initiale puis pagination / recherche manuelle
   }, []);
 
@@ -122,8 +126,8 @@ export function InventoryMaterialsPage(props: { mode: "RAW" | "PACKAGING" }) {
         labelFr: row.labelFr,
         category: row.category ?? null,
         unit: row.unit as FormValues["unit"],
-        minimumStockQty: String(row.minimumStockQty),
-        costPriceUnit: String(row.costPriceUnit),
+        minimumStockQty: row.minimumStockQty,
+        costPriceUnit: row.costPriceUnit,
         expirationTracking: Boolean(row.expirationTracking),
         expiryWarningDays: row.expiryWarningDays ?? null,
         notes: row.notes ?? null,
@@ -161,7 +165,7 @@ export function InventoryMaterialsPage(props: { mode: "RAW" | "PACKAGING" }) {
       },
       {
         header: "Seuil",
-        accessorFn: (row) => String(row.minimumStockQty),
+        accessorFn: (row) => row.minimumStockQty,
       },
       { header: "Unité", accessorKey: "unit" },
       {
@@ -223,10 +227,20 @@ export function InventoryMaterialsPage(props: { mode: "RAW" | "PACKAGING" }) {
       expiryWarningDays,
     };
 
-    await samyInvoke(channelUpsert, rawMaterialUpsertSchema.parse(normalized));
+    const parsed = rawMaterialUpsertSchema.parse(normalized);
+    const isNew = !parsed.id;
+    await samyInvoke(channelUpsert, parsed);
     invalidateInventoryCaches();
     setModalOpen(false);
-    await reload(meta.page).catch(console.error);
+    pushToast("success", "Fiche enregistrée.");
+    if (isNew && parsed.sku.trim().length > 0) {
+      setQ(parsed.sku);
+      await reload(1, parsed.sku);
+    } else {
+      setQ("");
+      const pageAfterCreate = Math.max(1, Math.ceil((meta.total + 1) / meta.pageSize));
+      await reload(pageAfterCreate, "");
+    }
   }
 
   return (
@@ -239,6 +253,7 @@ export function InventoryMaterialsPage(props: { mode: "RAW" | "PACKAGING" }) {
             <button
               type="button"
               className="focus-ring inline-flex min-h-touch items-center gap-2 border border-accent bg-accent px-3 py-2 text-[12px] font-semibold text-accent-foreground hover:opacity-95"
+              data-testid="material-modal-open"
               onClick={() => openModal()}
             >
               <Plus className="h-[15px] w-[15px]" aria-hidden /> Nouvelle fiche
@@ -246,6 +261,22 @@ export function InventoryMaterialsPage(props: { mode: "RAW" | "PACKAGING" }) {
           ) : null
         }
       />
+
+      {q.trim().length > 0 ? (
+        <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12px] font-semibold text-warning-foreground">
+          Filtre actif : « {q.trim()} » — seuls les articles correspondants sont affichés.{" "}
+          <button
+            type="button"
+            className="underline hover:opacity-90"
+            onClick={() => {
+              setQ("");
+              void reload(1, "");
+            }}
+          >
+            Tout afficher
+          </button>
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <input
@@ -324,7 +355,7 @@ export function InventoryMaterialsPage(props: { mode: "RAW" | "PACKAGING" }) {
         </div>
       ) : null}
 
-      <DataTable columns={columns} data={rows} emptyLabel="Aucun article inventoriable." />
+      <DataTable columns={columns} data={rows} loading={loading} emptyLabel="Aucun article inventoriable." />
 
       <div className="flex justify-between gap-4 text-[11px] text-foreground-muted">
         <button
@@ -350,7 +381,11 @@ export function InventoryMaterialsPage(props: { mode: "RAW" | "PACKAGING" }) {
 
       <Modal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => {
+          setModalOpen(false);
+          form.reset(defaultForm());
+        }}
+        testId="material-modal"
         title={form.getValues("id") ? "Mettre à jour la fiche" : "Créer une fiche"}
         footer={
           <button
@@ -365,10 +400,10 @@ export function InventoryMaterialsPage(props: { mode: "RAW" | "PACKAGING" }) {
         <form className="space-y-4" onSubmit={form.handleSubmit(submit)}>
           <div className="grid gap-4 md:grid-cols-2">
             <FormField label="SKU" error={form.formState.errors.sku?.message}>
-              <input className="control-chrome w-full font-mono" {...form.register("sku")} />
+              <input className="control-chrome w-full font-mono" data-testid="material-modal-sku" {...form.register("sku")} />
             </FormField>
             <FormField label="Désignation" error={form.formState.errors.labelFr?.message}>
-              <input className="control-chrome w-full" {...form.register("labelFr")} />
+              <input className="control-chrome w-full" data-testid="material-modal-label" {...form.register("labelFr")} />
             </FormField>
           </div>
           <FormField label="Catégorie">
@@ -420,10 +455,11 @@ export function InventoryMaterialsPage(props: { mode: "RAW" | "PACKAGING" }) {
           {canWrite ? (
             <button
               type="submit"
+              data-testid="material-modal-submit"
               className="focus-ring w-full border border-accent bg-accent py-2 text-[12px] font-semibold text-accent-foreground"
               disabled={form.formState.isSubmitting}
             >
-              Enregistrer fiche
+              {form.formState.isSubmitting ? "Enregistrement…" : "Enregistrer fiche"}
             </button>
           ) : null}
         </form>

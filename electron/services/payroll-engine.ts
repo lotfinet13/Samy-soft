@@ -1,12 +1,12 @@
 import {
   AttendanceStatus,
+  Decimal,
   PayrollAdjustmentKind,
   SalaryType,
   type AttendanceRecord,
   type PayrollAdjustment,
   type Worker,
-} from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
+} from "../prisma-client.js";
 
 import { decimalToString, parseDecimal } from "./inventory-service.js";
 

@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "../prisma-client.js";
 
 export async function logActivity(
   prisma: PrismaClient,

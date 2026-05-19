@@ -1,13 +1,13 @@
 import {
+  Decimal,
   InventoryMovementKind,
   InvoicePaymentStatus,
   InvoiceStatus,
   MaterialKind,
   PaymentMethod,
-  Prisma,
   PrismaClient,
-} from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
+  type Prisma,
+} from "../prisma-client.js";
 import {
   decimalToString,
   getCurrentQty,

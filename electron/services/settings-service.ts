@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "../prisma-client.js";
 import {
   APP_SETTING_KEYS,
   DEFAULT_SETTINGS,
@@ -6,7 +6,7 @@ import {
 } from "../../shared/settings-keys.js";
 
 export async function getAllSettings(
-  prisma: PrismaClient,
+  prisma: PrismaClient | Prisma.TransactionClient,
 ): Promise<Record<AppSettingKey, string>> {
   const rows = await prisma.appSetting.findMany();
   const base: Record<AppSettingKey, string> = { ...DEFAULT_SETTINGS };
@@ -20,7 +20,7 @@ export async function getAllSettings(
 }
 
 export async function upsertSettings(
-  prisma: PrismaClient,
+  prisma: PrismaClient | Prisma.TransactionClient,
   entries: Partial<Record<AppSettingKey, string>>,
 ): Promise<void> {
   for (const [key, value] of Object.entries(entries)) {
@@ -32,6 +32,12 @@ export async function upsertSettings(
       create: { key, value },
     });
   }
+}
+
+export async function ensureDefaultSettings(
+  prisma: PrismaClient | Prisma.TransactionClient,
+): Promise<void> {
+  await upsertSettings(prisma, DEFAULT_SETTINGS);
 }
 
 export function isAppSettingKey(key: string): key is AppSettingKey {

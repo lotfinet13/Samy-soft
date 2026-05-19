@@ -1,45 +1,62 @@
-import fs from "node:fs";
-import path from "node:path";
-
 import { contextBridge, ipcRenderer } from "electron";
-import { IPC_CHANNELS } from "../shared/ipc-channels.js";
-
-const allowedChannels = new Set<string>(Object.values(IPC_CHANNELS));
-
-function preloadArtifactsDir(): string {
-  /* `cwd` correspond au dossier projet en dev / `electron.launch({ cwd })` pour les E2E. */
-  return path.resolve(process.cwd(), "e2e", "artifacts");
-}
-
-try {
-  const dir = preloadArtifactsDir();
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(
-    path.join(dir, "preload-executed.txt"),
-    `${new Date().toISOString()}\ncwd=${process.cwd()}\nsamyE2eEnv=${process.env.SAMY_E2E ?? ""}\nargv=${JSON.stringify(process.argv)}\n`,
-    "utf8",
-  );
-} catch {
-  /* poste très restreint : ignorer */
-}
+import { isAllowedIpcChannel } from "../shared/ipc-channel-policy.js";
 
 const e2eBridge =
   process.env.SAMY_SOFT_E2E_GLOBAL_BRIDGE === "1" ||
   process.env.SAMY_E2E === "1" ||
   process.argv.includes("--samy-e2e");
 
+function writeE2ePreloadArtifact(): void {
+  try {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const path = require("node:path") as typeof import("node:path");
+    /* `cwd` correspond au dossier projet en dev / `electron.launch({ cwd })` pour les E2E. */
+    const dir = path.resolve(process.cwd(), "e2e", "artifacts");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "preload-executed.txt"),
+      `${new Date().toISOString()}\ncwd=${process.cwd()}\nsamyE2eEnv=${process.env.SAMY_E2E ?? ""}\nargv=${JSON.stringify(process.argv)}\n`,
+      "utf8",
+    );
+  } catch {
+    /* poste très restreint : ignorer */
+  }
+}
+
 export type SamyPreloadApi = {
   invoke: <TResponse>(channel: string, payload?: unknown) => Promise<TResponse>;
 };
 
+type IpcLogEntry = { channel: string; ms: number; ok: boolean; at: string; error?: string };
+
+function pushIpcLog(entry: IpcLogEntry): void {
+  const g = globalThis as unknown as { __SAMY_IPC_LOG__?: IpcLogEntry[] };
+  const ring = g.__SAMY_IPC_LOG__ ?? [];
+  ring.push(entry);
+  if (ring.length > 80) ring.shift();
+  g.__SAMY_IPC_LOG__ = ring;
+}
+
 const api: SamyPreloadApi = {
   invoke<TResponse>(channel: string, payload?: unknown): Promise<TResponse> {
-    if (!allowedChannels.has(channel)) {
+    if (!isAllowedIpcChannel(channel)) {
       return Promise.reject(new Error(`Canal IPC non autorisé : ${channel}`));
     }
+    const t0 = performance.now();
     return ipcRenderer
       .invoke(channel, payload)
+      .then((result) => {
+        pushIpcLog({ channel, ms: Math.round(performance.now() - t0), ok: true, at: new Date().toISOString() });
+        return result as TResponse;
+      })
       .catch((reason: unknown) => {
+        pushIpcLog({
+          channel,
+          ms: Math.round(performance.now() - t0),
+          ok: false,
+          at: new Date().toISOString(),
+          error: reason instanceof Error ? reason.message : String(reason),
+        });
         if (reason instanceof Error) return Promise.reject(reason);
         const message =
           reason && typeof reason === "object" && "message" in reason &&
@@ -56,6 +73,7 @@ const api: SamyPreloadApi = {
 const stamp = new Date().toISOString();
 
 if (e2eBridge) {
+  writeE2ePreloadArtifact();
   Reflect.defineProperty(globalThis, "samy", {
     value: api,
     enumerable: true,
@@ -64,6 +82,12 @@ if (e2eBridge) {
   });
   Reflect.defineProperty(globalThis, "__SAMY_PRELOAD_LOADED_AT__", {
     value: stamp,
+    enumerable: true,
+    configurable: false,
+    writable: false,
+  });
+  Reflect.defineProperty(globalThis, "__SAMY_E2E__", {
+    value: true,
     enumerable: true,
     configurable: false,
     writable: false,

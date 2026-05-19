@@ -7,7 +7,12 @@ import { Modal } from "@/components/ui/Modal";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { usePermissions } from "@/hooks/usePermissions";
-import { invalidateInventoryCaches } from "@/lib/invalidate-ui-cache";
+import {
+  invalidateInventoryCaches,
+  invalidateProductionCaches,
+  invalidateReportsCaches,
+} from "@/lib/invalidate-ui-cache";
+import { notifySuccess } from "@/lib/notify";
 import { samyInvoke } from "@/lib/samy";
 
 type RecipeOption = { id: string; labelFr: string; code: string };
@@ -29,6 +34,7 @@ export function ProductionBatchesPage() {
 
   const [rows, setRows] = useState<BatchRow[]>([]);
   const [meta, setMeta] = useState({ total: 0, page: 1, pageSize: 25 });
+  const [loading, setLoading] = useState(true);
   const [recipeOptions, setRecipeOptions] = useState<RecipeOption[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [completeOpen, setCompleteOpen] = useState<BatchRow | null>(null);
@@ -37,15 +43,27 @@ export function ProductionBatchesPage() {
   const [recipeId, setRecipeId] = useState("");
   const [produceQty, setProduceQty] = useState("");
   const [qBatch, setQBatch] = useState("");
+  const [creatingBatch, setCreatingBatch] = useState(false);
+
+  function invalidateAfterBatchMutation(): void {
+    invalidateProductionCaches();
+    invalidateInventoryCaches();
+    invalidateReportsCaches();
+  }
 
   async function reload(page = meta.page, qOverride?: string): Promise<void> {
-    const qs = qOverride !== undefined ? qOverride : qBatch;
-    const payload = await samyInvoke<{ items: BatchRow[]; total: number; page: number; pageSize: number }>(
-      IPC_CHANNELS.PRODUCTION_BATCH_LIST,
-      { page, pageSize: meta.pageSize, q: qs },
-    );
-    setRows(payload.items);
-    setMeta({ total: payload.total, page: payload.page, pageSize: payload.pageSize });
+    setLoading(true);
+    try {
+      const qs = qOverride !== undefined ? qOverride : qBatch;
+      const payload = await samyInvoke<{ items: BatchRow[]; total: number; page: number; pageSize: number }>(
+        IPC_CHANNELS.PRODUCTION_BATCH_LIST,
+        { page, pageSize: meta.pageSize, q: qs },
+      );
+      setRows(payload.items);
+      setMeta({ total: payload.total, page: payload.page, pageSize: payload.pageSize });
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -118,23 +136,36 @@ export function ProductionBatchesPage() {
   );
 
   async function submitCreate(): Promise<void> {
+    if (creatingBatch) return;
     productionBatchCreateSchema.parse({ recipeId, plannedQty });
-    await samyInvoke(IPC_CHANNELS.PRODUCTION_BATCH_CREATE, { recipeId, plannedQty });
-    setCreateOpen(false);
-    await reload(1).catch(console.error);
+    setCreatingBatch(true);
+    try {
+      await samyInvoke(IPC_CHANNELS.PRODUCTION_BATCH_CREATE, { recipeId, plannedQty });
+      invalidateAfterBatchMutation();
+      notifySuccess("Lot programmé.");
+      setCreateOpen(false);
+      setRecipeId("");
+      setPlannedQty("100");
+      await reload(1);
+    } finally {
+      setCreatingBatch(false);
+    }
   }
 
   async function startLot(id: string): Promise<void> {
     productionBatchLifecycleSchema.parse({ batchId: id });
     await samyInvoke(IPC_CHANNELS.PRODUCTION_BATCH_START, { batchId: id });
-    await reload(meta.page).catch(console.error);
+    invalidateAfterBatchMutation();
+    notifySuccess("Lot démarré.");
+    await reload(meta.page);
   }
 
   async function cancelLot(id: string): Promise<void> {
     productionBatchLifecycleSchema.parse({ batchId: id });
     await samyInvoke(IPC_CHANNELS.PRODUCTION_BATCH_CANCEL, { batchId: id });
-    invalidateInventoryCaches();
-    await reload(meta.page).catch(console.error);
+    invalidateAfterBatchMutation();
+    notifySuccess("Lot annulé.");
+    await reload(meta.page);
   }
 
   async function finishLot(): Promise<void> {
@@ -142,8 +173,9 @@ export function ProductionBatchesPage() {
     productionBatchCompleteSchema.parse({ batchId: completeOpen.id, producedQty: produceQty });
     await samyInvoke(IPC_CHANNELS.PRODUCTION_BATCH_COMPLETE, { batchId: completeOpen.id, producedQty: produceQty });
     setCompleteOpen(null);
-    invalidateInventoryCaches();
-    await reload(meta.page).catch(console.error);
+    invalidateAfterBatchMutation();
+    notifySuccess("Lot terminé — stock et coûts mis à jour.");
+    await reload(meta.page);
   }
 
   return (
@@ -153,7 +185,7 @@ export function ProductionBatchesPage() {
         subtitle="Planification → IN_PROGRESS (contrôle ruptures) → POST PRODUCTION_OUT automatique à la clôture."
         actions={
           canExec ? (
-            <button type="button" className="border border-accent bg-accent px-3 py-2 text-[12px] font-semibold text-accent-foreground" onClick={() => setCreateOpen(true)}>
+            <button type="button" className="border border-accent bg-accent px-3 py-2 text-[12px] font-semibold text-accent-foreground" data-testid="batch-modal-open" onClick={() => setCreateOpen(true)}>
               Programmer lot
             </button>
           ) : null
@@ -187,7 +219,7 @@ export function ProductionBatchesPage() {
         </button>
       </div>
 
-      <DataTable columns={columns} data={rows} emptyLabel="Aucun dossier lot local." />
+      <DataTable columns={columns} data={rows} loading={loading} emptyLabel="Aucun dossier lot local." />
 
       <div className="flex justify-between text-[11px] text-foreground-muted">
         <button type="button" disabled={meta.page <= 1} className="font-semibold text-accent disabled:opacity-40" onClick={() => reload(meta.page - 1).catch(console.error)}>
@@ -198,11 +230,11 @@ export function ProductionBatchesPage() {
         </button>
       </div>
 
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Programmation lot fabrication">
+      <Modal open={createOpen} onClose={() => { setCreateOpen(false); setRecipeId(""); setPlannedQty("100"); }} testId="batch-modal" title="Programmation lot fabrication">
         <div className="space-y-4 text-[12px]">
           <label className="flex flex-col gap-2">
             <span className="text-[11px] font-semibold text-foreground-muted">Recette cible</span>
-            <select className="control-chrome" value={recipeId} onChange={(event) => setRecipeId(event.target.value)}>
+            <select className="control-chrome" data-testid="batch-modal-recipe" value={recipeId} onChange={(event) => setRecipeId(event.target.value)}>
               <option value="">—</option>
               {recipeOptions.map((recipe) => (
                 <option key={recipe.id} value={recipe.id}>
@@ -215,8 +247,8 @@ export function ProductionBatchesPage() {
             <span className="text-[11px] font-semibold text-foreground-muted">Volume prévisionnel (aligné même unité que yield)</span>
             <input className="control-chrome font-mono" value={plannedQty} onChange={(event) => setPlannedQty(event.target.value)} />
           </label>
-          <button type="button" className="border border-accent bg-accent px-4 py-2 text-[13px] font-semibold text-accent-foreground" onClick={() => submitCreate().catch(console.error)}>
-            Générer code lot
+          <button type="button" data-testid="batch-modal-submit" className="border border-accent bg-accent px-4 py-2 text-[13px] font-semibold text-accent-foreground disabled:opacity-50" disabled={!recipeId || creatingBatch} onClick={() => submitCreate().catch(console.error)}>
+            {creatingBatch ? "Création…" : "Générer code lot"}
           </button>
         </div>
       </Modal>

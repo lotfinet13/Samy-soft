@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "../prisma-client.js";
 import { APP_SETTING_KEYS, DEFAULT_SETTINGS } from "../../shared/settings-keys.js";
 
 export async function readPublicBranding(prisma: PrismaClient): Promise<{

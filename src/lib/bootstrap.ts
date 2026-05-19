@@ -10,7 +10,41 @@ export type SessionResponse =
   | { ok: false }
   | { ok: true; user: SessionUser; branding: PublicBranding };
 
+export type BootstrapStatus =
+  | {
+      state: "needs_setup";
+      usersCount: number;
+      settingsInitialized: boolean;
+      reason: string;
+    }
+  | {
+      state: "ready";
+      usersCount: number;
+      settingsInitialized: boolean;
+    };
+
+let bootstrapStatusCache: BootstrapStatus | null = null;
+
+export function getCachedBootstrapStatus(): BootstrapStatus | null {
+  return bootstrapStatusCache;
+}
+
+export async function refreshBootstrapStatus(): Promise<BootstrapStatus> {
+  const status = await samyInvoke<BootstrapStatus>(IPC_CHANNELS.BOOTSTRAP_STATUS);
+  bootstrapStatusCache = status;
+  return status;
+}
+
 export async function refreshSession(): Promise<void> {
+  const bootstrap = await refreshBootstrapStatus();
+  if (bootstrap.state === "needs_setup") {
+    useAuthStore.getState().setUser(null);
+    useAuthStore.getState().setBranding(null);
+    useAuthStore.getState().setBootstrapRequired(true);
+    useSettingsStore.getState().setSettings(null);
+    return;
+  }
+  useAuthStore.getState().setBootstrapRequired(false);
   const res = await samyInvoke<SessionResponse>(IPC_CHANNELS.AUTH_SESSION);
   if (!res.ok) {
     useAuthStore.getState().setUser(null);

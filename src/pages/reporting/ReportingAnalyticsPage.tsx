@@ -1,6 +1,8 @@
 import { IPC_CHANNELS } from "@shared/ipc-channels";
 import { PERMISSIONS } from "@shared/permissions";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { AsyncStatePanel } from "@/components/system/AsyncStatePanel";
+import { useAsyncLoad } from "@/hooks/useAsyncLoad";
 import { Navigate } from "react-router-dom";
 import {
   Area,
@@ -57,11 +59,6 @@ export function ReportingAnalyticsPage() {
   const [from, setFrom] = useState(() => isoRange().from.slice(0, 10));
   const [to, setTo] = useState(() => isoRange().to.slice(0, 10));
 
-  const [inv, setInv] = useState<InvAn | null>(null);
-  const [prd, setPrd] = useState<PrdAn | null>(null);
-  const [hr, setHr] = useState<HrAn | null>(null);
-  const [sl, setSl] = useState<SlAn | null>(null);
-
   const rangePayload = useMemo(
     () => ({
       from: new Date(`${from}T00:00:00.000Z`).toISOString(),
@@ -70,23 +67,23 @@ export function ReportingAnalyticsPage() {
     [from, to],
   );
 
-  const load = useCallback(async (): Promise<void> => {
-    if (!can(PERMISSIONS.ANALYTICS_READ)) return;
-    const [i, p, h, s] = await Promise.all([
-      samyInvoke<InvAn>(IPC_CHANNELS.REPORTS_ANALYTICS_INVENTORY, rangePayload),
-      samyInvoke<PrdAn>(IPC_CHANNELS.REPORTS_ANALYTICS_PRODUCTION, rangePayload),
-      samyInvoke<HrAn>(IPC_CHANNELS.REPORTS_ANALYTICS_HR, rangePayload),
-      samyInvoke<SlAn>(IPC_CHANNELS.REPORTS_ANALYTICS_SALES, rangePayload),
-    ]);
-    setInv(i);
-    setPrd(p);
-    setHr(h);
-    setSl(s);
-  }, [can, rangePayload]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const { data, loading, error, reload } = useAsyncLoad(
+    async () => {
+      const [inv, prd, hr, sl] = await Promise.all([
+        samyInvoke<InvAn>(IPC_CHANNELS.REPORTS_ANALYTICS_INVENTORY, rangePayload),
+        samyInvoke<PrdAn>(IPC_CHANNELS.REPORTS_ANALYTICS_PRODUCTION, rangePayload),
+        samyInvoke<HrAn>(IPC_CHANNELS.REPORTS_ANALYTICS_HR, rangePayload),
+        samyInvoke<SlAn>(IPC_CHANNELS.REPORTS_ANALYTICS_SALES, rangePayload),
+      ]);
+      return { inv, prd, hr, sl };
+    },
+    [rangePayload.from, rangePayload.to],
+    { immediate: can(PERMISSIONS.ANALYTICS_READ), timeoutMs: 90_000 },
+  );
+  const inv = data?.inv ?? null;
+  const prd = data?.prd ?? null;
+  const hr = data?.hr ?? null;
+  const sl = data?.sl ?? null;
 
   if (!can(PERMISSIONS.ANALYTICS_READ)) return <Navigate to="/rapports" replace />;
 
@@ -103,11 +100,17 @@ export function ReportingAnalyticsPage() {
           Au
           <input type="date" className="control-chrome h-9 px-2" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
-        <button type="button" className="control-chrome h-9 px-4 text-[12px] font-semibold" onClick={() => void load()}>
-          Recalculer
+        <button
+          type="button"
+          className="control-chrome h-9 px-4 text-[12px] font-semibold disabled:opacity-50"
+          disabled={loading}
+          onClick={() => void reload()}
+        >
+          {loading ? "Calcul…" : "Recalculer"}
         </button>
       </section>
 
+      <AsyncStatePanel loading={loading} error={error} onRetry={() => void reload()} loadingLabel="Agrégation des analytiques…">
       <div className="grid gap-3 xl:grid-cols-2">
         <ChartPanel title="Achats agrégés (semaines ISO)">
           {inv?.purchaseValueWeekly?.length ? (
@@ -291,6 +294,7 @@ export function ReportingAnalyticsPage() {
           )}
         </ChartPanel>
       </div>
+      </AsyncStatePanel>
     </div>
   );
 }

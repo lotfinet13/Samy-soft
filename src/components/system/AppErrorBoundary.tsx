@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { logger } from "@/lib/logger";
 
 type Props = { children: ReactNode };
 
@@ -19,7 +20,7 @@ export class AppErrorBoundary extends Component<Props, { error?: Error | null }>
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
     const stack = `${error.stack ?? ""} ${info.componentStack ?? ""}`.trim();
-    console.error("[samy-soft-renderer-boundary]", error.message, stack);
+    logger.error("error-boundary", error.message, stack);
   }
 
   override render() {

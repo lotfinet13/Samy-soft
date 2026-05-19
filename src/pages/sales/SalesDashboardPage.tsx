@@ -5,7 +5,8 @@ import { StatCard } from "@/components/ui/StatCard";
 import { usePermissions } from "@/hooks/usePermissions";
 import { samyInvoke } from "@/lib/samy";
 import { Link } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { AsyncStatePanel } from "@/components/system/AsyncStatePanel";
+import { useAsyncLoad } from "@/hooks/useAsyncLoad";
 import {
   CartesianGrid,
   Line,
@@ -41,13 +42,10 @@ type Dash = {
 
 export function SalesDashboardPage() {
   const { can } = usePermissions();
-  const [dash, setDash] = useState<Dash | null>(null);
-
-  useEffect(() => {
-    void samyInvoke<Dash>(IPC_CHANNELS.SALES_DASHBOARD_SUMMARY)
-      .then(setDash)
-      .catch(console.error);
-  }, []);
+  const { data: dash, loading, error, reload } = useAsyncLoad(
+    () => samyInvoke<Dash>(IPC_CHANNELS.SALES_DASHBOARD_SUMMARY),
+    [],
+  );
 
   const chartData =
     dash?.trend14d.map((t) => ({
@@ -56,7 +54,7 @@ export function SalesDashboardPage() {
     })) ?? [];
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" data-testid="sales-dashboard-page">
       <PageHeader
         title="Centre commercial"
         subtitle="CA du jour, impayés, tendances 14 jours et alertes stock articles vendables."
@@ -66,6 +64,7 @@ export function SalesDashboardPage() {
         <p className="text-[12px] text-danger">Permission sales.read requise.</p>
       ) : null}
 
+      <AsyncStatePanel loading={loading} error={error} onRetry={() => void reload()}>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="CA aujourd’hui (validé / payé)"
@@ -187,6 +186,7 @@ export function SalesDashboardPage() {
           </ul>
         </section>
       </div>
+      </AsyncStatePanel>
     </div>
   );
 }
