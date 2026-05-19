@@ -37,6 +37,7 @@ playwright-report/
 playwright-results.json
 blob-report/
 e2e/artifacts/
+ci-logs/
 
 # Local databases, backups, and runtime data
 .data/
@@ -66,6 +67,8 @@ _quarantine/
 # Local secrets
 .env
 .env.*
+.env.local
+.env.production.local
 !.env.example
 !.env.template
 
