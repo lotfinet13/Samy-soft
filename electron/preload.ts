@@ -1,10 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { isAllowedIpcChannel } from "../shared/ipc-channel-policy.js";
 
-const e2eBridge =
-  process.env.SAMY_SOFT_E2E_GLOBAL_BRIDGE === "1" ||
-  process.env.SAMY_E2E === "1" ||
-  process.argv.includes("--samy-e2e");
+/**
+ * Le processus principal pose ce flag uniquement si E2E est demandé ET `app.isPackaged === false`.
+ * Ne pas réactiver relax via `SAMY_E2E` ici : un installeur ne doit jamais exposer `globalThis.samy`.
+ */
+const e2eBridge = process.env.SAMY_SOFT_E2E_GLOBAL_BRIDGE === "1";
 
 function writeE2ePreloadArtifact(): void {
   try {

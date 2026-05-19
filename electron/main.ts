@@ -11,13 +11,27 @@ import { setupBackupScheduler } from "./services/backup-scheduler.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
-function isE2ERelaxMode(): boolean {
+function isE2ERequested(): boolean {
   return process.env.SAMY_E2E === "1" || process.argv.includes("--samy-e2e");
 }
 
-/** Aligné preload : exposition `globalThis` lorsque isolation/contexte est relâché (voir preload). */
+/**
+ * Relâchement sécurité (sandbox / contextIsolation) réservé aux E2E Playwright en dev.
+ * `SAMY_E2E=1` sur un installeur packagé ne doit jamais affaiblir Chromium — garde explicite.
+ */
+function isE2ERelaxMode(): boolean {
+  if (!isE2ERequested()) return false;
+  if (app.isPackaged) return false;
+  return true;
+}
+
+/** Aligné preload : exposition `globalThis` uniquement si relax autorisé (voir preload). */
 if (isE2ERelaxMode()) {
   process.env.SAMY_SOFT_E2E_GLOBAL_BRIDGE = "1";
+} else if (isE2ERequested() && app.isPackaged) {
+  console.warn(
+    "[samy-soft] SAMY_E2E ignoré pour webPreferences : build packagé — sandbox et contextIsolation restent actifs.",
+  );
 }
 
 function attachNavigatorGuards(window: BrowserWindow): void {
@@ -37,7 +51,7 @@ function attachNavigatorGuards(window: BrowserWindow): void {
 }
 
 function createMainWindow(): BrowserWindow {
-  /** Playwright Electron : aligner bridge + monde JS — voir `docs/testing-strategy.md`. */
+  /** Playwright (unpackaged) : bridge global ; production packagée : toujours contextIsolation + sandbox. */
   const e2eRelax = isE2ERelaxMode();
   try {
     const preloadAbs = path.join(moduleDir, "preload.cjs");
