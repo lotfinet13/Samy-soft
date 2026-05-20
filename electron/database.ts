@@ -3,8 +3,17 @@ import path from "node:path";
 import { Prisma, PrismaClient } from "./prisma-client.js";
 import { app } from "electron";
 import { parseReleaseChannel, resolveDatabaseBasename, userDataChannelSegment } from "../shared/release-channel.js";
+import {
+  applySqliteConnectionPragmas,
+  isSqliteLockError,
+  type SqlitePragmaSnapshot,
+} from "./services/sqlite-connection.js";
 
 let prisma: PrismaClient | null = null;
+let lastPragmaSnapshot: SqlitePragmaSnapshot | null = null;
+
+const DB_CONNECT_MAX_ATTEMPTS = 5;
+const DB_CONNECT_RETRY_MS = 400;
 
 export function getDatabaseFilePath(): string {
   const testRaw =
@@ -86,5 +95,39 @@ export async function disconnectPrisma(): Promise<void> {
 
 export async function reconnectPrisma(): Promise<PrismaClient> {
   await disconnectPrisma();
-  return getPrisma();
+  const client = getPrisma();
+  await client.$connect();
+  lastPragmaSnapshot = await applySqliteConnectionPragmas(client);
+  return client;
+}
+
+export function getLastSqlitePragmaSnapshot(): SqlitePragmaSnapshot | null {
+  return lastPragmaSnapshot;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Connect with bounded retries for transient SQLITE_BUSY / lock after crash or AV scan.
+ */
+export async function connectPrismaWithRetry(): Promise<PrismaClient> {
+  const client = getPrisma();
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= DB_CONNECT_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await client.$connect();
+      lastPragmaSnapshot = await applySqliteConnectionPragmas(client);
+      return client;
+    } catch (error) {
+      lastError = error;
+      if (!isSqliteLockError(error) || attempt === DB_CONNECT_MAX_ATTEMPTS) {
+        throw error;
+      }
+      await disconnectPrisma();
+      await sleep(DB_CONNECT_RETRY_MS * attempt);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }

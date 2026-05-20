@@ -5,12 +5,20 @@ import crypto from "node:crypto";
 import { app } from "electron";
 import AdmZip from "adm-zip";
 import type { PrismaClient } from "../prisma-client.js";
+import {
+  parseBackupManifestJson,
+  type BackupManifestV2,
+  type ParsedBackupManifest,
+} from "../../shared/backup-manifest.js";
+import { BACKUP_ARCHIVE_FORMAT } from "../../shared/release-metadata.js";
 import { APP_SETTING_KEYS } from "../../shared/settings-keys.js";
 import {
   disconnectPrisma,
   getDatabaseFilePath,
   reconnectPrisma,
 } from "../database.js";
+import { getMachineIdentifier } from "./machine-identity-service.js";
+import { getSchemaVersionInfo } from "./schema-version-service.js";
 
 export const BACKUP_FORMAT = {
   ZIP_V1: "ZIP_V1",
@@ -31,12 +39,7 @@ export const INTEGRITY = {
 const ZIP_DB_ENTRY = "database.sqlite";
 const ZIP_MANIFEST_ENTRY = "manifest.json";
 
-export type BackupManifestV1 = {
-  version: 1;
-  sqliteSha256: string;
-  createdAtUtc: string;
-  appVersion: string;
-};
+export type { BackupManifestV2, ParsedBackupManifest } from "../../shared/backup-manifest.js";
 
 export async function resolveBackupDirectory(prisma: PrismaClient): Promise<string> {
   const row = await prisma.appSetting.findUnique({
@@ -98,20 +101,39 @@ export async function exportDatabaseBackup(
   const sqliteBytes = await fs.readFile(sourceDb);
   const sqliteSha256 = await sha256Buffer(sqliteBytes);
 
-  const manifest: BackupManifestV1 = {
-    version: 1,
+  const createdAtUtc = new Date().toISOString();
+  const schema = getSchemaVersionInfo();
+
+  const manifest: BackupManifestV2 = {
+    version: 2,
+    backupFormat: BACKUP_ARCHIVE_FORMAT,
     sqliteSha256,
-    createdAtUtc: new Date().toISOString(),
+    archiveSha256: "",
+    createdAtUtc,
+    backupTimestampUtc: createdAtUtc,
     appVersion: app.getVersion(),
+    schemaVersion: schema.schemaVersion,
+    schemaPrismaSha256: schema.schemaPrismaSha256,
+    machineId: getMachineIdentifier(),
+    hostname: os.hostname(),
+    platform: process.platform,
+    electronVersion: process.versions.electron ?? "unknown",
+    nodeVersion: process.versions.node,
   };
 
   const zip = new AdmZip();
   zip.addFile(ZIP_DB_ENTRY, sqliteBytes);
-  zip.addFile(ZIP_MANIFEST_ENTRY, Buffer.from(JSON.stringify(manifest, null, 0)));
+  zip.addFile(ZIP_MANIFEST_ENTRY, Buffer.from(JSON.stringify(manifest, null, 2)));
   zip.writeZip(targetPath);
 
   const archiveBytes = await fs.readFile(targetPath);
   const checksumSha256 = await sha256Buffer(archiveBytes);
+
+  manifest.archiveSha256 = checksumSha256;
+  const zipFinal = new AdmZip();
+  zipFinal.addFile(ZIP_DB_ENTRY, sqliteBytes);
+  zipFinal.addFile(ZIP_MANIFEST_ENTRY, Buffer.from(JSON.stringify(manifest, null, 2)));
+  zipFinal.writeZip(targetPath);
   const stat = await fs.stat(targetPath);
 
   const record = await prisma.backupRecord.create({
@@ -179,17 +201,36 @@ export async function resolveBackupAbsolutePath(prisma: PrismaClient, backupId: 
   });
 }
 
-function readZipEntries(zipPath: string): { sqlite: Buffer; manifest: BackupManifestV1 } | null {
+function readZipEntries(
+  zipPath: string,
+): { sqlite: Buffer; manifest: ParsedBackupManifest } | null {
   try {
     const zip = new AdmZip(zipPath);
     const dbEntry = zip.getEntry(ZIP_DB_ENTRY)?.getData();
     const mfRaw = zip.getEntry(ZIP_MANIFEST_ENTRY)?.getData()?.toString("utf8");
     if (!dbEntry?.length || !mfRaw?.length) return null;
-    const manifest = JSON.parse(mfRaw) as BackupManifestV1;
-    if (manifest.version !== 1 || typeof manifest.sqliteSha256 !== "string") return null;
+    const manifest = parseBackupManifestJson(mfRaw);
+    if (!manifest) return null;
     return { sqlite: dbEntry, manifest };
   } catch {
     return null;
+  }
+}
+
+async function verifyManifestAgainstArchive(
+  absolutePath: string,
+  entries: { sqlite: Buffer; manifest: ParsedBackupManifest },
+): Promise<void> {
+  const innerHash = await sha256Buffer(entries.sqlite);
+  if (innerHash !== entries.manifest.sqliteSha256) {
+    throw new Error("manifest_sqlite_mismatch");
+  }
+
+  if (entries.manifest.version === 2) {
+    const zipSha256 = await sha256File(absolutePath);
+    if (zipSha256 !== entries.manifest.archiveSha256) {
+      throw new Error("manifest_archive_mismatch");
+    }
   }
 }
 
@@ -237,15 +278,20 @@ export async function verifyBackupDiskPath(
     throw new Error("Archive ZIP corrompue ou structure inconnue.");
   }
 
-  const innerHash = await sha256Buffer(entries.sqlite);
-  if (innerHash !== entries.manifest.sqliteSha256) {
+  try {
+    await verifyManifestAgainstArchive(absolutePath, entries);
+  } catch (cause) {
     if (recordId) {
       await prisma.backupRecord.update({
         where: { id: recordId },
         data: { integrityStatus: INTEGRITY.MANIFEST_MISMATCH },
       });
     }
-    throw new Error("Contrôle d’intégrité : fichier SQLite dans l’archive ne correspond pas au manifeste.");
+    const msg =
+      cause instanceof Error && cause.message === "manifest_archive_mismatch"
+        ? "Empreinte de l’archive ne correspond pas au manifeste."
+        : "Contrôle d’intégrité : fichier SQLite dans l’archive ne correspond pas au manifeste.";
+    throw new Error(msg);
   }
 
   const zipSha256 = await sha256File(absolutePath);
@@ -322,10 +368,7 @@ export async function restoreDatabaseFromBackup(
   if (isZip) {
     const entries = readZipEntries(normalizedPath);
     if (!entries) throw new Error("ZIP illisible — restauration annulée.");
-    const innerHash = await sha256Buffer(entries.sqlite);
-    if (innerHash !== entries.manifest.sqliteSha256) {
-      throw new Error("Contrôle avant restauration : incohérence manifeste ZIP.");
-    }
+    await verifyManifestAgainstArchive(normalizedPath, entries);
     const tmp = path.join(app.getPath("temp"), `samy-restore-${crypto.randomUUID()}.sqlite`);
     await fs.writeFile(tmp, entries.sqlite);
     try {

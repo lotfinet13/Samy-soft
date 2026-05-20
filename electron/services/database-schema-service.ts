@@ -1,13 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { app } from "electron";
 import { getDatabaseFilePath, getPrisma } from "../database.js";
+import { resolveBootstrapSchemaSqlPathOrThrow } from "../utils/packaged-runtime-paths.js";
 import type { PrismaClient } from "../prisma-client.js";
 import { appendSamyMainLog, appendStructuredEvent } from "./logger-service.js";
 
-const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const CORE_TABLE = "AppSetting";
 let schemaReady = false;
 let schemaInitPromise: Promise<void> | null = null;
@@ -73,7 +70,7 @@ async function hasAnyApplicationTables(prisma: PrismaClient): Promise<boolean> {
 }
 
 async function applyBootstrapSchema(prisma: PrismaClient): Promise<void> {
-  const sqlPath = resolveBootstrapSchemaSqlPath();
+  const sqlPath = resolveBootstrapSchemaSqlPathOrThrow();
   let sql = fs.readFileSync(sqlPath, "utf8");
   if (sql.charCodeAt(0) === 0xfeff) sql = sql.slice(1);
   const statements = splitSqlStatements(sql);
@@ -127,23 +124,6 @@ async function recordBootstrapMigration(prisma: PrismaClient, sql: string): Prom
     `INSERT INTO "_prisma_migrations"
       (id, checksum, finished_at, migration_name, logs, rolled_back_at, started_at, applied_steps_count)
      VALUES ('${id}', '${checksum}', '${now}', '${migrationName}', NULL, NULL, '${now}', 1)`,
-  );
-}
-
-function resolveBootstrapSchemaSqlPath(): string {
-  const candidates = [
-    path.join(process.resourcesPath, "prisma", "bootstrap-schema.sql"),
-    path.join(process.cwd(), "prisma", "bootstrap-schema.sql"),
-    path.join(moduleDir, "..", "..", "..", "prisma", "bootstrap-schema.sql"),
-  ];
-  if (!app.isPackaged) {
-    candidates.unshift(path.join(process.cwd(), "prisma", "bootstrap-schema.sql"));
-  }
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  throw new Error(
-    "Script bootstrap-schema.sql introuvable. Reconstruisez l'application (npm run build / dist:win).",
   );
 }
 

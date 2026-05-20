@@ -25,6 +25,7 @@
     "e2e:smoke": "npm run e2e:ensure-db && cross-env SAMY_E2E=1 SAMY_SKIP_DEVTOOLS=1 SAMY_E2E_DATABASE_PATH=.data/e2e/samye2e.sqlite playwright test e2e/critical-flows.spec.ts",
     "e2e:modals": "npm run e2e:ensure-db && cross-env SAMY_E2E=1 SAMY_SKIP_DEVTOOLS=1 SAMY_E2E_DATABASE_PATH=.data/e2e/samye2e.sqlite playwright test e2e/modal-workflows.spec.ts",
     "e2e:restart": "npm run e2e:ensure-db && cross-env SAMY_E2E=1 SAMY_SKIP_DEVTOOLS=1 SAMY_E2E_DATABASE_PATH=.data/e2e/samye2e.sqlite playwright test e2e/restart-persistence.spec.ts",
+    "e2e:resilience": "npm run e2e:ensure-db && cross-env SAMY_E2E=1 SAMY_SKIP_DEVTOOLS=1 SAMY_E2E_DATABASE_PATH=.data/e2e/samye2e.sqlite playwright test e2e/db-resilience.spec.ts",
     "verify:bootstrap-schema": "tsx scripts/validate-bootstrap-schema.ts",
     "verify:schema-checksum": "tsx scripts/verify-schema-checksum.ts",
     "verify:migrate-deploy": "tsx scripts/verify-migrate-deploy.ts",
@@ -41,7 +42,13 @@
     "e2e": "npm run e2e:ensure-db && cross-env SAMY_E2E=1 SAMY_SKIP_DEVTOOLS=1 SAMY_E2E_DATABASE_PATH=.data/e2e/samye2e.sqlite playwright test",
     "qa:certs-installer": "tsx scripts/check-installer-artifacts.ts",
     "qa:perf-sample": "tsx scripts/performance-sample.ts",
-    "dist:win": "npm run build && electron-builder --win",
+    "icons:generate": "node scripts/generate-app-icon.mjs",
+    "icons:verify": "node scripts/verify-app-icon.mjs",
+    "dist:win": "npm run icons:generate && npm run icons:verify && npm run build && electron-builder --win",
+    "validate:packaged": "tsx scripts/packaged-validation-probe.ts",
+    "release:checksums": "tsx scripts/generate-release-checksums.ts",
+    "release:production": "tsx scripts/release-production.ts",
+    "factory:simulation": "tsx scripts/factory-simulation-run.ts",
     "clean": "node scripts/clean-project.mjs all",
     "clean:cache": "node scripts/clean-project.mjs cache",
     "clean:build": "node scripts/clean-project.mjs build",
@@ -87,7 +94,9 @@
     "happy-dom": "^20.9.0",
     "postcss": "^8.4.49",
     "prisma": "^6.3.1",
+    "sharp": "^0.34.5",
     "tailwindcss": "^3.4.17",
+    "to-ico": "^1.1.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vite": "^6.0.7",
@@ -101,6 +110,7 @@
     "appId": "dz.samysoft.desktop",
     "productName": "SAMY SOFT",
     "copyright": "Copyright © SAMY SOFT — usage site industriel fermé.",
+    "icon": "build/icon.ico",
     "directories": {
       "output": "release"
     },
@@ -126,9 +136,14 @@
       {
         "from": "prisma/bootstrap-schema.sql",
         "to": "prisma/bootstrap-schema.sql"
+      },
+      {
+        "from": "prisma/schema-checksums.json",
+        "to": "prisma/schema-checksums.json"
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "requestedExecutionLevel": "asInvoker",
       "target": [
         {
@@ -149,6 +164,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
       "displayLanguageSelector": false,
       "installerLanguages": [
         "fr_FR"

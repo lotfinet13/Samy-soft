@@ -6,14 +6,17 @@ import { getPrisma } from "../database.js";
 import { logActivity } from "../services/activity-service.js";
 import {
   authenticateUser,
+  performLogout,
   persistSession,
-  readSession,
   resolveSessionUser,
   sessionHasPermission,
 } from "../services/auth-service.js";
 import { createInitialAdmin, getBootstrapStatus } from "../services/bootstrap-service.js";
 import { ensureDatabaseSchemaReady } from "../services/database-schema-service.js";
 import { readPublicBranding } from "../services/branding-service.js";
+import { getMachineIdentifier } from "../services/machine-identity-service.js";
+import { getSchemaVersionInfo } from "../services/schema-version-service.js";
+import { BACKUP_ARCHIVE_FORMAT, BACKUP_MANIFEST_SCHEMA_VERSION } from "../../shared/release-metadata.js";
 import { captureMainProcessError } from "../services/logger-service.js";
 import { getAllSettings, upsertSettings } from "../services/settings-service.js";
 import { registerHrHandlers } from "./hr-handlers.js";
@@ -46,10 +49,18 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.APP_WORKSTATION_INFO, async () => {
+    const schema = getSchemaVersionInfo();
     return {
       hostname: os.hostname(),
       version: app.getVersion(),
       platform: process.platform,
+      schemaVersion: schema.schemaVersion,
+      schemaPrismaSha256: schema.schemaPrismaSha256,
+      electronVersion: process.versions.electron ?? "unknown",
+      nodeVersion: process.versions.node,
+      backupFormatVersion: BACKUP_ARCHIVE_FORMAT,
+      backupManifestVersion: BACKUP_MANIFEST_SCHEMA_VERSION,
+      machineId: getMachineIdentifier(),
     } as const;
   });
 
@@ -102,17 +113,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.AUTH_LOGOUT, async () => {
     const prisma = getPrisma();
-    const existing = readSession();
-    persistSession(null);
-    if (existing?.userId) {
-      await logActivity(prisma, {
-        userId: existing.userId,
-        action: "LOGOUT",
-        entityType: "session",
-        metadata: {},
-      });
-    }
-    return { ok: true as const };
+    return performLogout(prisma);
   });
 
   ipcMain.handle(IPC_CHANNELS.AUTH_SESSION, async () => {

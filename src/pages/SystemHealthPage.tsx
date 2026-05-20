@@ -177,8 +177,22 @@ export function SystemHealthPage() {
               <dd className="font-mono">{workstation?.hostname ?? "—"}</dd>
             </div>
             <div className="flex justify-between gap-2">
-              <dt className="text-foreground-muted">Version</dt>
+              <dt className="text-foreground-muted">Version app</dt>
               <dd className="font-mono">{workstation?.version ?? "—"}</dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-foreground-muted">Schéma DB</dt>
+              <dd className="font-mono" title={workstation?.schemaPrismaSha256}>
+                {workstation?.schemaVersion ?? "—"}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-foreground-muted">Electron</dt>
+              <dd className="font-mono">{workstation?.electronVersion ?? "—"}</dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt className="text-foreground-muted">Machine ID</dt>
+              <dd className="font-mono text-[10px]">{workstation?.machineId?.slice(0, 8) ?? "—"}…</dd>
             </div>
             <div className="flex justify-between gap-2">
               <dt className="text-foreground-muted">Plateforme</dt>

@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { Outlet } from "react-router-dom";
+import { AppVersionFooter } from "@/components/layout/AppVersionFooter";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { CommandPalette } from "@/components/system/CommandPalette";
@@ -22,6 +23,7 @@ export function AppShell() {
                 <Outlet />
               </Suspense>
             </main>
+            <AppVersionFooter />
           </div>
         </div>
       </SessionIdleGate>

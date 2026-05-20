@@ -5,20 +5,41 @@ import { fileURLToPath } from "node:url";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
-export function detectBootstrapSchemaDrift(): {
+export function defaultRepoBootstrapSchemaPath(): string {
+  return path.join(moduleDir, "..", "prisma", "bootstrap-schema.sql");
+}
+
+export function defaultRepoRoot(): string {
+  return path.join(moduleDir, "..");
+}
+
+export type BootstrapSchemaDriftOptions = {
+  bootstrapPath?: string;
+  repoRoot?: string;
+  /** Packaged runtime: file is shipped via extraResources; Prisma CLI is not available. */
+  presenceOnly?: boolean;
+};
+
+export function detectBootstrapSchemaDrift(options: BootstrapSchemaDriftOptions = {}): {
   driftDetected: boolean;
   detail?: string;
   fileExists: boolean;
 } {
-  const bootstrapPath = path.join(moduleDir, "..", "prisma", "bootstrap-schema.sql");
+  const bootstrapPath = options.bootstrapPath ?? defaultRepoBootstrapSchemaPath();
+  const repoRoot = options.repoRoot ?? defaultRepoRoot();
+
   if (!fs.existsSync(bootstrapPath)) {
     return { driftDetected: true, fileExists: false, detail: "bootstrap-schema.sql introuvable" };
+  }
+
+  if (options.presenceOnly) {
+    return { driftDetected: false, fileExists: true };
   }
 
   try {
     const expected = execSync(
       "npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script",
-      { encoding: "utf8", cwd: path.join(moduleDir, ".."), stdio: ["ignore", "pipe", "pipe"] },
+      { encoding: "utf8", cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
     )
       .replace(/\r\n/g, "\n")
       .trim();

@@ -2,12 +2,15 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, dialog } from "electron";
-import { configureDatabaseUrl, getPrisma } from "./database.js";
+import { configureDatabaseUrl, connectPrismaWithRetry, disconnectPrisma } from "./database.js";
 import { registerIpcHandlers } from "./ipc/handlers.js";
 import { ensureDatabaseSchemaReady } from "./services/database-schema-service.js";
 import { appendSamyMainLog, appendStructuredEvent, captureMainProcessError } from "./services/logger-service.js";
 import { runStartupDiagnostics } from "./services/startup-diagnostics-service.js";
 import { setupBackupScheduler } from "./services/backup-scheduler.js";
+import { auditAbnormalShutdownIfNeeded, writeCleanShutdownMarker } from "./services/abnormal-shutdown-service.js";
+import { reconcileStaleSessionAtStartup } from "./services/auth-service.js";
+import { isSqliteLockError } from "./services/sqlite-connection.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,6 +35,18 @@ if (isE2ERelaxMode()) {
   console.warn(
     "[samy-soft] SAMY_E2E ignoré pour webPreferences : build packagé — sandbox et contextIsolation restent actifs.",
   );
+}
+
+/** Dev / unpackaged taskbar icon; packaged Windows uses the executable embedded icon. */
+function resolveWindowIcon(): string | undefined {
+  const candidates = [
+    path.join(process.cwd(), "build", "icon.ico"),
+    path.join(app.getAppPath(), "build", "icon.ico"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 function attachNavigatorGuards(window: BrowserWindow): void {
@@ -64,6 +79,7 @@ function createMainWindow(): BrowserWindow {
   } catch {
     /* noop */
   }
+  const windowIcon = resolveWindowIcon();
   const window = new BrowserWindow({
     width: 1366,
     height: 820,
@@ -71,6 +87,7 @@ function createMainWindow(): BrowserWindow {
     minHeight: 680,
     show: false,
     title: "SAMY SOFT",
+    ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: {
       preload: path.join(moduleDir, "preload.cjs"),
       contextIsolation: !e2eRelax,
@@ -124,7 +141,22 @@ function createMainWindow(): BrowserWindow {
   return window;
 }
 
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const windows = BrowserWindow.getAllWindows();
+    const existing = windows[0];
+    if (existing) {
+      if (existing.isMinimized()) existing.restore();
+      existing.focus();
+    }
+  });
+}
+
 void app.whenReady().then(async () => {
+  if (!gotSingleInstanceLock) return;
   try {
     fs.mkdirSync(path.join(process.cwd(), "e2e", "artifacts"), { recursive: true });
     fs.writeFileSync(
@@ -145,34 +177,72 @@ void app.whenReady().then(async () => {
     void captureMainProcessError("unhandledRejection", reason instanceof Error ? reason : new Error(String(reason)));
   });
 
+  let startupDiag: Awaited<ReturnType<typeof runStartupDiagnostics>> | null = null;
   try {
-    await getPrisma().$connect();
+    const prisma = await connectPrismaWithRetry();
     await ensureDatabaseSchemaReady();
-    const startupDiag = await runStartupDiagnostics(getPrisma());
+    await auditAbnormalShutdownIfNeeded(prisma);
+    await reconcileStaleSessionAtStartup(prisma);
+    startupDiag = await runStartupDiagnostics(prisma);
     if (!startupDiag.ok) {
       await appendStructuredEvent("warn", {
         scope: "startup-diagnostics",
+        degraded: startupDiag.degraded,
         bootstrapDrift: startupDiag.bootstrapSchema.driftDetected,
         migrationPending: startupDiag.migrations.pendingCount,
         fkViolations: startupDiag.foreignKeys.violations.length,
         integrityIssues: startupDiag.businessIntegrity.issueCount,
+        healthIntegrity: startupDiag.health.integrity.ok,
+        lowDisk: startupDiag.health.diskSpace.lowSpaceWarning,
+        sessionCleared: startupDiag.health.session.cleared,
       });
       await appendSamyMainLog("WARN startup diagnostics", {
         bootstrap: startupDiag.bootstrapSchema.detail,
         fk: startupDiag.foreignKeys.violations.slice(0, 5),
+        health: startupDiag.health.writablePaths.errors,
       });
+    }
+    if (startupDiag.degraded && !startupDiag.ok) {
+      dialog.showMessageBoxSync({
+        type: "warning",
+        title: "SAMY SOFT — Démarrage dégradé",
+        message: "L'application a démarré en mode dégradé.",
+        detail:
+          "Des contrôles de santé ont signalé des anomalies (espace disque, sauvegardes ou intégrité).\n" +
+          "Consultez Paramètres → Santé système et effectuez une sauvegarde avant de continuer la production.",
+        buttons: ["Continuer"],
+      });
+    }
+    if (!startupDiag.health.integrity.ok) {
+      dialog.showErrorBox(
+        "SAMY SOFT — Intégrité base",
+        "La vérification d'intégrité SQLite a échoué.\n\n" +
+          "Arrêtez l'application, restaurez une sauvegarde récente (ZIP) ou contactez le support.\n\n" +
+          startupDiag.health.integrity.preview.slice(0, 3).join("\n"),
+      );
+      app.quit();
+      return;
     }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Erreur inconnue à la connexion SQLite.";
+    const lockHint = isSqliteLockError(error)
+      ? "\n\nLa base est peut-être verrouillée par une autre copie de SAMY SOFT ou un antivirus. Fermez les autres instances et réessayez."
+      : "";
     dialog.showErrorBox(
       "SAMY SOFT — Base de données",
-      `Impossible d'initialiser la base locale.\n\n${message}`,
+      `Impossible d'initialiser la base locale.\n\n${message}${lockHint}`,
     );
     app.quit();
     return;
   }
 
+  app.on("before-quit", () => {
+    void writeCleanShutdownMarker();
+    void disconnectPrisma();
+  });
+
+  await writeCleanShutdownMarker();
   await appendSamyMainLog("SAMY SOFT — principal prêt, sauvegardes automatiques suivies.");
   setupBackupScheduler();
   createMainWindow();

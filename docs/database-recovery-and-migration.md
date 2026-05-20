@@ -110,13 +110,23 @@ npx prisma db seed
 
 ### Current state (0.2.x)
 
-- `prisma/migrations/` contains the historical chain (`init` → phase migrations).
-- Packaged/runtime bootstrap uses **`electron/resources/bootstrap-schema.sql`**, kept in sync via:
+- `prisma/migrations/` contains the historical chain (`init` → phase migrations) — **dev/CI only**; not copied into the Windows installer.
+- Packaged runtime ships **`resources/prisma/bootstrap-schema.sql`** (`electron-builder` `extraResources`), kept in sync via:
 
 ```bash
 npm run db:bootstrap-schema
 npm run verify:bootstrap-schema
 ```
+
+### Packaged app migration strategy
+
+| Artifact | Shipped in installer? | Runtime role |
+|----------|----------------------|--------------|
+| `prisma/bootstrap-schema.sql` | **Yes** (`extraResources`) | Empty DB → `ensureDatabaseSchemaReady()` |
+| `prisma/migrations/` | **No** | `migrate deploy` on dev machines / upgrade runbooks only |
+| Prisma CLI | **No** | Build & CI scripts only |
+
+**Health / startup diagnostics (packaged):** verify bootstrap SQL **presence** under `process.resourcesPath`; skip folder-level `prisma/migrations` parity (no false pending migrations). Content drift is enforced at **build time** via `verify:bootstrap-schema`.
 
 ### If `prisma migrate deploy` fails on an existing DB
 

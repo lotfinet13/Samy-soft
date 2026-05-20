@@ -9,6 +9,13 @@ export type WorkstationInfoDTO = {
   hostname: string;
   version: string;
   platform: string;
+  schemaVersion: string;
+  schemaPrismaSha256: string;
+  electronVersion: string;
+  nodeVersion: string;
+  backupFormatVersion: string;
+  backupManifestVersion: number;
+  machineId: string;
 };
 
 export type ActivityLogDTO = {

@@ -1,7 +1,9 @@
 import type { Prisma, PrismaClient } from "../prisma-client.js";
 
+type ActivityWriter = PrismaClient | Prisma.TransactionClient;
+
 export async function logActivity(
-  prisma: PrismaClient,
+  prisma: ActivityWriter,
   params: {
     userId?: string | null;
     action: string;
@@ -10,9 +12,24 @@ export async function logActivity(
     metadata?: Record<string, unknown>;
   },
 ): Promise<void> {
+  let userId: string | null | undefined = params.userId ?? null;
+  if (userId) {
+    const exists = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!exists) {
+      throw new Error(
+        `ActivityLog: userId inexistant (${userId}) — action=${params.action}. Utiliser userId null et metadata pour les sessions orphelines.`,
+      );
+    }
+  } else {
+    userId = undefined;
+  }
+
   await prisma.activityLog.create({
     data: {
-      userId: params.userId ?? undefined,
+      userId,
       action: params.action,
       entityType: params.entityType,
       entityId: params.entityId ?? undefined,

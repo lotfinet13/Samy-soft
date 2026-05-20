@@ -34,10 +34,18 @@ export async function upsertSettings(
   }
 }
 
+/** Inserts missing keys only — never overwrites operator-configured values on each bootstrap/status poll. */
 export async function ensureDefaultSettings(
   prisma: PrismaClient | Prisma.TransactionClient,
 ): Promise<void> {
-  await upsertSettings(prisma, DEFAULT_SETTINGS);
+  for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+    if (!isAppSettingKey(key)) continue;
+    await prisma.appSetting.upsert({
+      where: { key },
+      create: { key, value },
+      update: {},
+    });
+  }
 }
 
 export function isAppSettingKey(key: string): key is AppSettingKey {

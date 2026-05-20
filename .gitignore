@@ -8,6 +8,10 @@ release/
 release-*/
 out/
 build/
+!build/icon.ico
+!build/icon.png
+!build/icon-source.svg
+!build/ICON_ASSETS.md
 *.asar
 
 # Installers / OS packages (regenerate via electron-builder)
