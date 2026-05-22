@@ -23,9 +23,12 @@ if (!stat.isFile() || stat.size < MIN_BYTES) {
   fail(`icon.ico too small (${stat.size} bytes) — regenerate with npm run icons:generate`);
 }
 
+const logoPng = path.join(ROOT, "build", "samy-soft-logo.png");
 const placeholder = path.join(ROOT, "build", ".icon-is-placeholder");
-if (fs.existsSync(placeholder)) {
-  console.warn("[icons:verify] Placeholder icon in use — acceptable for pilot; replace before final branding.");
+if (fs.existsSync(logoPng)) {
+  console.log(`[icons:verify] Branding source: build/samy-soft-logo.png`);
+} else if (fs.existsSync(placeholder)) {
+  console.warn("[icons:verify] Placeholder icon in use — add build/samy-soft-logo.png for factory branding.");
 }
 
 console.log(`[icons:verify] OK — build/icon.ico (${stat.size} bytes)`);
