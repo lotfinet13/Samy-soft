@@ -78,7 +78,6 @@ export function InlineInventoryQtyCell(props: Props) {
           disabled={saving}
           aria-label="Quantité physique cible"
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => setEditing(false)}
           onKeyDown={onKey}
         />
       </span>

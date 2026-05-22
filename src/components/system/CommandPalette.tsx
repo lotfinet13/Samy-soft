@@ -14,6 +14,7 @@ export function CommandPalette(): ReactElement | null {
   const { can } = usePermissions();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
+  const initialFocusDoneRef = useRef(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
 
@@ -48,13 +49,22 @@ export function CommandPalette(): ReactElement | null {
 
   useEffect(() => {
     if (!open) {
+      initialFocusDoneRef.current = false;
       setQuery("");
       setSelected(0);
       return;
     }
     setSelected(0);
-    queueMicrotask(() => inputRef.current?.focus());
-  }, [open, mode]);
+    if (!initialFocusDoneRef.current) {
+      initialFocusDoneRef.current = true;
+      queueMicrotask(() => inputRef.current?.focus());
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setSelected(0);
+  }, [mode, open]);
 
   useEffect(() => {
     setSelected((i) => (rows.length === 0 ? 0 : Math.min(i, rows.length - 1)));

@@ -17,29 +17,46 @@ export function Modal(props: {
   testId?: string;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const onCloseRef = useRef(props.onClose);
+  onCloseRef.current = props.onClose;
+  const initialFocusDoneRef = useRef(false);
 
   useEffect(() => {
-    if (!props.open) return;
+    if (!props.open) {
+      initialFocusDoneRef.current = false;
+      return;
+    }
 
     const dialog = dialogRef.current;
-    const focusables = () =>
+    const body = bodyRef.current;
+
+    const focusablesInDialog = () =>
       Array.from(dialog?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(
         (el) => el.offsetParent !== null,
       );
 
-    const first = focusables()[0];
-    first?.focus();
+    const focusablesInBody = () =>
+      Array.from(body?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(
+        (el) => el.offsetParent !== null,
+      );
+
+    if (!initialFocusDoneRef.current) {
+      initialFocusDoneRef.current = true;
+      const initial = focusablesInBody()[0] ?? focusablesInDialog()[0];
+      initial?.focus();
+    }
 
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === "Escape") {
         event.preventDefault();
-        props.onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !dialog) return;
 
-      const nodes = focusables();
+      const nodes = focusablesInDialog();
       if (nodes.length === 0) return;
 
       const active = document.activeElement as HTMLElement | null;
@@ -58,7 +75,7 @@ export function Modal(props: {
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [props.open, props.onClose]);
+  }, [props.open]);
 
   if (!props.open) return null;
 
@@ -95,7 +112,9 @@ export function Modal(props: {
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="px-6 py-5">{props.children}</div>
+        <div ref={bodyRef} className="px-6 py-5">
+          {props.children}
+        </div>
         {props.footer ? (
           <div className="border-t border-border px-6 py-4">{props.footer}</div>
         ) : null}
